@@ -476,39 +476,116 @@ async fn nvidia_smi() -> Option<GpuInfo> {
 /// the security boundary that prevents arbitrary command execution. This
 /// function trusts its input.
 ///
-/// When `requires_admin` is true the script is written to a temp .ps1 and
-/// launched via `Start-Process -Verb RunAs`, which raises a Windows UAC
-/// consent prompt. We can't capture stdout/stderr from the elevated child,
-/// so the outcome only reports whether the launcher itself succeeded.
+/// When `requires_admin` is true the user's script is written to a temp
+/// .ps1 and a wrapper .ps1 invokes it, capturing stdout/stderr to temp
+/// files plus the real exit code. The wrapper is launched via
+/// `Start-Process -Verb RunAs -Wait -WindowStyle Hidden` so the agent
+/// blocks on the elevated child, then reads the captured output back so
+/// the dashboard can display the actual result. If the user declines UAC
+/// the launcher fails fast and we report it.
 pub async fn apply_fix(fix_command: &str, requires_admin: bool) -> Result<ApplyOutcome> {
     if requires_admin {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let tmp = std::env::temp_dir().join(format!("bastion-fix-{nonce}.ps1"));
-        std::fs::write(&tmp, fix_command)?;
-        let tmp_str = tmp.to_string_lossy().replace('\'', "''");
-        // Launcher: non-elevated PS that triggers UAC, then exits.
-        let launcher = format!(
-            "Start-Process powershell -Verb RunAs -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-File','{tmp_str}')"
+        let tmpdir = std::env::temp_dir();
+        let user_script = tmpdir.join(format!("bastion-fix-{nonce}.ps1"));
+        let wrapper_script = tmpdir.join(format!("bastion-fix-{nonce}-wrap.ps1"));
+        let out_file = tmpdir.join(format!("bastion-fix-{nonce}.out"));
+        let err_file = tmpdir.join(format!("bastion-fix-{nonce}.err"));
+        let exit_file = tmpdir.join(format!("bastion-fix-{nonce}.exit"));
+
+        std::fs::write(&user_script, fix_command)?;
+
+        // PowerShell single-quoted strings need '' to escape a literal '.
+        let q = |p: &std::path::Path| p.to_string_lossy().replace('\'', "''");
+        let user_q = q(&user_script);
+        let out_q = q(&out_file);
+        let err_q = q(&err_file);
+        let exit_q = q(&exit_file);
+
+        // Wrapper: invoke the user script, capture all streams, write
+        // stdout/stderr/exit to dedicated files. Always exits 0 itself
+        // so the launcher's exit code reflects ShellExecute, not the
+        // user fix's return code (we read the real one from $exit_q).
+        let wrapper = format!(
+            "$ErrorActionPreference = 'Continue'\r\n\
+             $stdout = ''\r\n\
+             $stderr = ''\r\n\
+             $code = 0\r\n\
+             try {{\r\n\
+                 $stdout = (& '{user_q}' 2>&1 | Out-String)\r\n\
+                 if ($null -ne $LASTEXITCODE) {{ $code = $LASTEXITCODE }}\r\n\
+             }} catch {{\r\n\
+                 $stderr = ($_ | Out-String)\r\n\
+                 $code = 1\r\n\
+             }}\r\n\
+             [System.IO.File]::WriteAllText('{out_q}', $stdout)\r\n\
+             [System.IO.File]::WriteAllText('{err_q}', $stderr)\r\n\
+             [System.IO.File]::WriteAllText('{exit_q}', $code.ToString())\r\n"
         );
-        let out = Command::new("powershell")
+        std::fs::write(&wrapper_script, wrapper)?;
+
+        let wrap_q = q(&wrapper_script);
+        // Launcher: non-elevated PS that fires UAC and waits for the
+        // elevated child to exit. Hidden window so the user sees only
+        // the UAC prompt, not a stray console flash.
+        let launcher = format!(
+            "$p = Start-Process powershell -Verb RunAs -PassThru -Wait -WindowStyle Hidden \
+             -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File','{wrap_q}'); \
+             if ($p) {{ exit $p.ExitCode }} else {{ exit 1 }}"
+        );
+        let launcher_out = Command::new("powershell")
             .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &launcher])
             .output().await?;
-        let ok = out.status.success();
-        Ok(ApplyOutcome {
-            launched_elevated: true,
-            ok,
-            exit_code: out.status.code(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-            message: if ok {
-                format!("UAC prompt opened. Approve in the popup; output appears in the elevated window. Script kept at {} for review.", tmp.display())
+
+        let launcher_ok = launcher_out.status.success();
+        let launcher_stderr = String::from_utf8_lossy(&launcher_out.stderr).into_owned();
+
+        // Try to read captured output regardless — if the elevated child
+        // got far enough to write any of these, we want to surface them.
+        let stdout_s = std::fs::read_to_string(&out_file).unwrap_or_default();
+        let stderr_s = std::fs::read_to_string(&err_file).unwrap_or_default();
+        let exit_s = std::fs::read_to_string(&exit_file).ok();
+        let real_exit = exit_s.as_deref().and_then(|s| s.trim().parse::<i32>().ok());
+
+        // Best-effort cleanup.
+        let _ = std::fs::remove_file(&user_script);
+        let _ = std::fs::remove_file(&wrapper_script);
+        let _ = std::fs::remove_file(&out_file);
+        let _ = std::fs::remove_file(&err_file);
+        let _ = std::fs::remove_file(&exit_file);
+
+        if real_exit.is_some() {
+            // Wrapper ran end-to-end — trust its captured exit code.
+            let code = real_exit.unwrap();
+            let ok = code == 0;
+            Ok(ApplyOutcome {
+                launched_elevated: true,
+                ok,
+                exit_code: Some(code),
+                stdout: stdout_s,
+                stderr: stderr_s,
+                message: if ok { "fix applied".into() } else { format!("fix returned non-zero exit code {code}") },
+            })
+        } else {
+            // Wrapper never wrote the exit file — UAC declined or the
+            // elevated process couldn't start.
+            let msg = if launcher_ok {
+                "elevated process started but did not complete (no output captured)".to_string()
             } else {
-                "failed to launch elevated PowerShell (UAC may have been declined)".into()
-            },
-        })
+                "UAC declined or failed to launch elevated PowerShell".to_string()
+            };
+            Ok(ApplyOutcome {
+                launched_elevated: true,
+                ok: false,
+                exit_code: launcher_out.status.code(),
+                stdout: stdout_s,
+                stderr: if stderr_s.is_empty() { launcher_stderr } else { stderr_s },
+                message: msg,
+            })
+        }
     } else {
         let out = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", fix_command])
