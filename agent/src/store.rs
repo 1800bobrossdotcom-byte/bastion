@@ -253,6 +253,14 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Total number of events in the chain. Used by the boot scan rollup
+    /// to compute drift count (events_after - events_before).
+    pub fn event_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0))?;
+        Ok(n)
+    }
+
     /// Cheap chain head lookup (no full verification).
     pub fn chain_tip(&self) -> Result<(i64, String)> {
         let conn = self.conn.lock().unwrap();

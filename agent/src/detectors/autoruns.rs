@@ -40,17 +40,26 @@ pub async fn run(store: Arc<Store>) {
     }
 
     loop {
-        if let Err(e) = scan_registry(&store, primed).await {
-            tracing::warn!("autoruns/registry: {e:#}");
-        }
-        if let Err(e) = scan_tasks(&store, primed).await {
-            tracing::warn!("autoruns/tasks: {e:#}");
-        }
-        if let Err(e) = scan_services(&store, primed).await {
-            tracing::warn!("autoruns/services: {e:#}");
+        if let Err(e) = scan_all(&store, primed).await {
+            tracing::warn!("autoruns: {e:#}");
         }
         tokio::time::sleep(Duration::from_secs(POLL_SECS)).await;
     }
+}
+
+/// Run all three autorun scans (registry / scheduled tasks / services) once.
+/// Exposed so the pre-boot scan rollup can drive a synchronous sweep at startup.
+pub async fn scan_all(store: &Arc<Store>, primed: bool) -> Result<()> {
+    if let Err(e) = scan_registry(store, primed).await {
+        tracing::warn!("autoruns/registry: {e:#}");
+    }
+    if let Err(e) = scan_tasks(store, primed).await {
+        tracing::warn!("autoruns/tasks: {e:#}");
+    }
+    if let Err(e) = scan_services(store, primed).await {
+        tracing::warn!("autoruns/services: {e:#}");
+    }
+    Ok(())
 }
 
 async fn scan_registry(store: &Arc<Store>, primed: bool) -> Result<()> {

@@ -6,6 +6,7 @@ mod dga;
 #[cfg(windows)]
 mod dpapi;
 mod forensic;
+mod hashlist;
 mod notifier;
 mod quarantine;
 mod store;
@@ -30,11 +31,20 @@ async fn main() -> Result<()> {
     let store = Arc::new(store::Store::open(&cfg.db_path())?);
     store.init_schema()?;
 
+    // Pre-boot integrity rollup. Runs ONCE synchronously before steady-state
+    // detectors so any persistence drift (registry/services/tasks/hosts file)
+    // surfaces in the first event the dashboard sees on this boot.
+    detectors::boot_scan::run(store.clone()).await;
+
     // Spawn detectors. Each detector pushes Events into the store.
     detectors::spawn_all(store.clone());
 
-    // URLhaus blocklist refresh (background; warms from disk cache).
+    // Network indicator blocklist refresh (URLhaus + OpenPhish, background;
+    // warms from disk cache).
     tokio::spawn(blocklist::refresh_loop());
+
+    // MalwareBazaar SHA256 hashlist refresh (background; powers scan-on-write).
+    tokio::spawn(hashlist::refresh_loop());
 
     // Outbound notifier (ntfy.sh push + Windows toast). No-op for ntfy if data/ntfy.txt is absent.
     tokio::spawn(notifier::run(store.clone()));

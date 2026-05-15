@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 pub mod attestation;
 pub mod autoruns;
+pub mod boot_scan;
 pub mod camera_mic;
 pub mod canary;
 pub mod defender;
@@ -13,6 +14,7 @@ pub mod proc_fp;
 pub mod process_lineage;
 pub mod process_net;
 pub mod registry_decoy;
+pub mod scan_on_write;
 pub mod usb;
 
 pub fn spawn_all(store: Arc<Store>) {
@@ -27,5 +29,6 @@ pub fn spawn_all(store: Arc<Store>) {
     tokio::spawn(dns::run(store.clone()));
     tokio::spawn(fim::run(store.clone()));
     tokio::spawn(proc_fp::run(store.clone()));
+    tokio::spawn(scan_on_write::run(store.clone()));
     tokio::spawn(usb::run(store.clone()));
 }
