@@ -13,3 +13,7 @@ token.txt
 ntfy.txt
 
 *.log
+
+# Bastion mobile keystore backup — NEVER commit
+KEYSTORE_BACKUP_DO_NOT_COMMIT/
+*.keystore
