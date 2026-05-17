@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-bg: #000000;
+  --color-bg-2: #041111;
+  --color-phosphor: #00ff66;
+  --color-phosphor-dim: #008833;
+  --color-phosphor-faint: #004d1f;
+  --color-ice: #8ee8ff;
+  --color-ice-dim: #5ca8be;
+  --color-line: rgba(0, 255, 102, 0.32);
+  --color-line-soft: rgba(92, 168, 190, 0.22);
+  --color-amber: #ffb000;
+  --color-red: #ff2d2d;
+  --color-bone: #c8c8b0;
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", "Consolas", ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html, body {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(0, 255, 102, 0.1), transparent 35%),
+    radial-gradient(circle at 85% 15%, rgba(142, 232, 255, 0.09), transparent 30%),
+    linear-gradient(160deg, var(--color-bg), var(--color-bg-2));
+  color: var(--color-phosphor);
+  font-family: var(--font-mono);
+  text-shadow: 0 0 1px rgba(0, 255, 102, 0.28);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 50;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px,
+    rgba(0,0,0,0.18) 3px, rgba(0,0,0,0.18) 3px
+  );
+  mix-blend-mode: multiply;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+body::after {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 51;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%);
+  animation: flicker 4.2s infinite;
 }
+
+@keyframes flicker {
+  0%,100% { opacity: 1; }
+  47% { opacity: 0.97; } 48% { opacity: 0.92; } 49% { opacity: 1; }
+  88% { opacity: 0.96; } 89% { opacity: 1; }
+}
+
+@keyframes blink { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+.cursor-blink::after { content: "▮"; animation: blink 1s steps(1) infinite; margin-left: 2px; }
+
+.box { border: 1px solid var(--color-phosphor-dim); background: rgba(0, 20, 8, 0.35); }
+.box-alert { border-color: var(--color-red);   color: var(--color-red); }
+.box-warn  { border-color: var(--color-amber); color: var(--color-amber); }
+.box-info  { border-color: var(--color-phosphor-dim); color: var(--color-phosphor-dim); }
+
+.panel {
+  border: 1px solid var(--color-line);
+  background: linear-gradient(160deg, rgba(0, 20, 15, 0.72), rgba(0, 8, 7, 0.66));
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 255, 102, 0.08),
+    0 20px 45px rgba(0, 0, 0, 0.5);
+}
+
+.panel-subtle {
+  border: 1px solid var(--color-line-soft);
+  background: rgba(0, 10, 12, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.btn-primary,
+.btn-ghost {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid transparent;
+  display: inline-block;
+  transition: 180ms ease;
+}
+
+.btn-primary {
+  color: #00170a;
+  background: linear-gradient(120deg, var(--color-phosphor), #69ffaa);
+  border-color: rgba(0, 255, 102, 0.5);
+  text-shadow: none;
+}
+
+.btn-primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.07);
+}
+
+.btn-ghost {
+  color: var(--color-ice);
+  border-color: var(--color-line-soft);
+  background: rgba(0, 9, 11, 0.45);
+}
+
+.btn-ghost:hover {
+  border-color: var(--color-phosphor-faint);
+  color: var(--color-phosphor);
+}
+
+.wallet-row {
+  border: 1px solid var(--color-line-soft);
+  padding: 0.45rem 0.55rem;
+  background: rgba(0, 6, 7, 0.55);
+}
+
+.wallet-row code {
+  color: var(--color-phosphor);
+  word-break: break-all;
+}
+
+button { font-family: inherit; }
+::selection { background: var(--color-phosphor); color: #000; }

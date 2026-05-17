@@ -1,0 +1,17 @@
+{
+  "name": "BASTION",
+  "short_name": "BASTION",
+  "description": "Local defensive monitoring console",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00ff66",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
