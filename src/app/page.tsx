@@ -1,5 +1,6 @@
 import AccessGateClient from "./wallet-access-client";
 import BastionMark from "@/components/BastionMark";
+import Image from "next/image";
 
 const MATRIX = [
   { trait: "Open source codebase",                             bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
@@ -290,29 +291,38 @@ export default function LandingPage() {
       <section className="panel mb-10 p-5 sm:p-6">
         <h2 className="text-xl sm:text-2xl text-[color:var(--color-phosphor)] mb-2">What You See When Running</h2>
         <p className="text-[color:var(--color-ice-dim)] mb-4 text-xs">
-          A literal walkthrough of the desktop window. Every region listed below maps to a file path so you can audit the
-          claim against the code, not just trust the screenshot.
+          Actual screenshots of the desktop app. Two surfaces over the same agent: a calm consumer console for
+          day-to-day, and a terminal-themed operator console for triage and response.
         </p>
-        <pre className="text-[10px] sm:text-[11px] leading-tight bg-black/40 border border-[color:var(--color-line)] p-3 overflow-x-auto text-[color:var(--color-phosphor)]">{`
-+---------------------------------------------------------------------------+
-| [ok] phosphor calibrated    chain ok · 1402 rows · head 8f3a…b2c1         |
-+---------------------------------------------------------------------------+
-| [ ALERT 003 ]  [ WARN 028 ]  [ INFO 005 ]  [ REMOVED 014 ]                |
-+---------------------------------------------------------------------------+
-| sources: [all] [attestation] [autoruns] [camera_mic] [proc_fp] [response] |
-| toggles: [hide noise: 41] [show resolved: 12] [resolve 7] [reset triage]  |
-| actions: [run full scan] [perf audit] [connectors] [export bundle]        |
-+---------------------------------------------------------------------------+
-| 13:42:07  !  proc_fp        review     unknown.exe pid 9180 (parent: …)   |
-|           > [kill pid] [quarantine] [trust fp] [trust exe] [why] [resolve]|
-| 13:41:55  ·  camera_mic     info       camera in use by chrome.exe        |
-|           > [why] [resolve]                                               |
-| 13:41:31  !! autoruns       suspicious new Run key: HKCU\\…\\update.lnk    |
-|           > [quarantine] [trust exe] [why] [resolve]                      |
-+---------------------------------------------------------------------------+
-| chain: ok · last-verified 1s ago    sentinel: linked (workspace: bobops)  |
-+---------------------------------------------------------------------------+
-`}</pre>
+        <div className="grid gap-4 md:grid-cols-2 mb-5">
+          <figure className="border border-[color:var(--color-line)] bg-black/40">
+            <Image
+              src="/screenshots/console-simple.png"
+              alt="Bastion simple console — 'You're protected' status, Quick actions (Run a full scan, Check performance, Reconnect agent), Recent activity feed."
+              width={1158}
+              height={770}
+              className="w-full h-auto"
+              priority
+            />
+            <figcaption className="px-3 py-2 text-[11px] text-[color:var(--color-ice-dim)] border-t border-[color:var(--color-line)]">
+              <span className="text-[color:var(--color-phosphor)]">Simple view</span> — at-a-glance status, one-click scan &amp; perf audit, recent activity feed.
+              File: <code>src/app/app/page.tsx</code>
+            </figcaption>
+          </figure>
+          <figure className="border border-[color:var(--color-line)] bg-black/40">
+            <Image
+              src="/screenshots/console-advanced.png"
+              alt="Bastion operator/advanced console — ASCII BASTION banner, alert/warn/info/removed counters, Sentinel connector, event source filters, full triage controls."
+              width={1151}
+              height={770}
+              className="w-full h-auto"
+            />
+            <figcaption className="px-3 py-2 text-[11px] text-[color:var(--color-ice-dim)] border-t border-[color:var(--color-line)]">
+              <span className="text-[color:var(--color-phosphor)]">Advanced view</span> — full event chain, source filters, Sentinel connector, triage actions.
+              File: <code>src/app/app/operator/page.tsx</code>
+            </figcaption>
+          </figure>
+        </div>
         <ul className="mt-4 grid gap-3 text-xs">
           {SCREEN_ANNOTATIONS.map((a) => (
             <li key={a.region} className="border-l-2 border-[color:var(--color-phosphor-faint)] pl-3">
