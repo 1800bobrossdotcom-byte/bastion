@@ -10,6 +10,7 @@ mod forensic;
 mod hashlist;
 mod notifier;
 mod quarantine;
+mod scan_engine;
 mod store;
 mod toast;
 

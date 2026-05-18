@@ -1,0 +1,22 @@
+[package]
+name = "bastion-amsi-provider"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "In-process COM IAntimalwareProvider DLL — registers under HKLM\\SOFTWARE\\Microsoft\\AMSI\\Providers and is loaded into every AMSI client (PowerShell, Office macros, WSH, .NET assemblies, MSIL loaders). Forwards scan buffers to the Bastion agent's scan_engine over a local named pipe."
+
+[lib]
+crate-type = ["cdylib"]
+name = "bastion_amsi"
+
+[dependencies]
+tracing = "0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.56", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Pipes",
+  "Win32_Storage_FileSystem",
+] }

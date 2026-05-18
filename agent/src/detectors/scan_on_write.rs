@@ -1,21 +1,10 @@
-// Real-time scan-on-write
+// Real-time scan-on-write (drop-directory watcher).
 // ----------------------------------------------------------------------------
-// Watches the user's drop directories (Downloads, Desktop, Documents) using
-// the same `notify` recommended-watcher backend Windows uses internally
-// (ReadDirectoryChangesW). On every Create event we:
-//
-//   1. Skip directories, oversize files, and our own data dir.
-//   2. Read the file, compute SHA-256.
-//   3. Check the MalwareBazaar hash blocklist.
-//   4. On hit:
-//        a. emit a `malware_hash_match` ALERT event,
-//        b. call `quarantine::quarantine_file()` to vault + delete the
-//           original (best-effort — file may be in use, in which case the
-//           vault copy is preserved as evidence and the user is alerted).
-//
-// This delivers the two AV-table rows BASTION used to lose:
-//   * "Signature AV scan-on-write database"   (via MalwareBazaar)
-//   * "Real-time auto-block of malicious file" (via auto-quarantine)
+// User-mode file watcher (notify / ReadDirectoryChangesW) on the typical
+// drop dirs: Downloads, Desktop, Documents. Every CREATE / RENAME event
+// is funnelled into `scan_engine::scan_path` which handles hash lookup,
+// quarantine, and event emission. Compare with `detectors::etw_file` which
+// covers all file opens system-wide but needs admin to start its ETW trace.
 //
 // Honest scope:
 //   * We watch user-writable drop dirs by default. We deliberately do NOT
@@ -25,21 +14,18 @@
 //     Downloads). Polymorphic / re-packed samples need behavioural detection,
 //     which the rest of BASTION provides.
 
-use crate::hashlist;
-use crate::quarantine;
+use crate::scan_engine;
 use crate::store::{now_event, Store};
-use anyhow::Result;
-use directories::{ProjectDirs, UserDirs};
+use directories::UserDirs;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-const MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
-// Tiny grace before we hash — many downloaders create then write asynchronously,
-// so we'd race the writer if we hashed on the very first Create event.
+// Tiny grace before we hash — many downloaders create then write
+// asynchronously, so we'd race the writer if we hashed on the very first
+// Create event.
 const HASH_DELAY_MS: u64 = 750;
 
 fn watched_dirs() -> Vec<PathBuf> {
@@ -50,37 +36,6 @@ fn watched_dirs() -> Vec<PathBuf> {
         if let Some(p) = u.document_dir() { v.push(p.to_path_buf()); }
     }
     v
-}
-
-fn agent_data_dir() -> Option<PathBuf> {
-    ProjectDirs::from("cam", "bastion", "bastion").map(|p| p.data_dir().to_path_buf())
-}
-
-fn looks_skippable(p: &Path) -> bool {
-    // Browser temp partials + our own vault — never hash.
-    if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
-        if name.ends_with(".crdownload")
-            || name.ends_with(".part")
-            || name.ends_with(".tmp")
-            || name.starts_with('~')
-        {
-            return true;
-        }
-    }
-    if let Some(dd) = agent_data_dir() {
-        if p.starts_with(&dd) { return true; }
-    }
-    false
-}
-
-fn sha256_of(p: &Path) -> Result<(String, u64)> {
-    let meta = std::fs::metadata(p)?;
-    let size = meta.len();
-    if size == 0 || size > MAX_FILE_BYTES {
-        anyhow::bail!("size out of range: {} bytes", size);
-    }
-    let bytes = std::fs::read(p)?;
-    Ok((hex::encode(Sha256::digest(&bytes)), size))
 }
 
 pub async fn run(store: Arc<Store>) {
@@ -138,40 +93,15 @@ pub async fn run(store: Arc<Store>) {
 
         for path in creates {
             if !path.is_file() { continue; }
-            if looks_skippable(&path) { continue; }
-
             // Hash on a worker so the watcher loop never blocks on large files.
             let store_c = store.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(HASH_DELAY_MS)).await;
                 if !path.is_file() { return; }
-                let (sha, size) = match sha256_of(&path) {
-                    Ok(v) => v,
-                    Err(_) => return,
-                };
-                if !hashlist::is_blocked(&sha) { return; }
-
-                let path_s = path.to_string_lossy().to_string();
-                let _ = store_c.insert_event(&now_event(
-                    "scan_on_write",
-                    "alert",
-                    "malware_hash_match",
-                    format!(
-                        "MalwareBazaar hash match: {}",
-                        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path_s.clone()),
-                    ),
-                    serde_json::json!({
-                        "path": path_s,
-                        "sha256": sha,
-                        "size": size,
-                        "source": "abuse.ch/MalwareBazaar",
-                    }),
-                ));
-
-                match quarantine::quarantine_file(&store_c, &path, "malware_hash_match (MalwareBazaar)") {
-                    Ok(rec) => tracing::info!("scan_on_write: auto-quarantined {} (vault {})", path_s, rec.vault_id),
-                    Err(e) => tracing::warn!("scan_on_write: quarantine failed for {path_s}: {e:?}"),
-                }
+                let _ = tokio::task::spawn_blocking(move || {
+                    let _ = scan_engine::scan_path(&store_c, &path, "scan_on_write");
+                })
+                .await;
             });
         }
     }

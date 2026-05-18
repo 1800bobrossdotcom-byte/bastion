@@ -8,6 +8,8 @@ pub mod camera_mic;
 pub mod canary;
 pub mod defender;
 pub mod dns;
+#[cfg(windows)]
+pub mod etw_file;
 pub mod fim;
 pub mod perf;
 pub mod proc_fp;
@@ -30,5 +32,7 @@ pub fn spawn_all(store: Arc<Store>) {
     tokio::spawn(fim::run(store.clone()));
     tokio::spawn(proc_fp::run(store.clone()));
     tokio::spawn(scan_on_write::run(store.clone()));
+    #[cfg(windows)]
+    tokio::spawn(etw_file::run(store.clone()));
     tokio::spawn(usb::run(store.clone()));
 }

@@ -3,6 +3,9 @@ name = "bastion-agent"
 version = "0.2.0"
 edition = "2021"
 
+[workspace]
+members = [".", "amsi-provider"]
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = "0.7"
@@ -28,8 +31,11 @@ base64 = "0.22"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
+ferrisetw = "1.2"
 windows = { version = "0.56", features = [
   "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Storage_FileSystem",
   "Win32_System_Registry",
   "Win32_NetworkManagement_IpHelper",
   "Win32_Networking_WinSock",
