@@ -556,12 +556,17 @@ export default function Home() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (res.ok) {
-        setScanReport(data as ScanReport);
-      } else {
-        alert(`scan failed: HTTP ${res.status}`);
+      if (!res.ok) {
+        const hint = res.status === 401 ? " — bearer token rejected (click [reset token] above)" : "";
+        alert(`scan failed: HTTP ${res.status}${hint}`);
+        return;
       }
+      const text = await res.text();
+      if (!text) {
+        alert("scan returned empty response");
+        return;
+      }
+      setScanReport(JSON.parse(text) as ScanReport);
     } catch (e) {
       alert(`scan error: ${e}`);
     } finally {
@@ -576,9 +581,17 @@ export default function Home() {
       const res = await fetch("http://127.0.0.1:7878/api/perf/audit", {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      if (res.ok) setPerfReport(data as PerfReport);
-      else alert(`perf audit failed: HTTP ${res.status}`);
+      if (!res.ok) {
+        const hint = res.status === 401 ? " — bearer token rejected (click [reset token] above)" : "";
+        alert(`perf audit failed: HTTP ${res.status}${hint}`);
+        return;
+      }
+      const text = await res.text();
+      if (!text) {
+        alert("perf audit returned empty response");
+        return;
+      }
+      setPerfReport(JSON.parse(text) as PerfReport);
     } catch (e) {
       alert(`perf audit error: ${e}`);
     } finally {
@@ -849,7 +862,22 @@ export default function Home() {
         </div>
       )}
 
-      {error && <div className="box box-alert px-3 py-2 mb-3">[link-down] {error}</div>}
+      {error && (
+        <div className="box box-alert px-3 py-2 mb-3 flex items-center justify-between gap-3">
+          <span>[link-down] {error}</span>
+          <button
+            type="button"
+            className="btn-ghost text-xs whitespace-nowrap"
+            title="Clear the saved bearer token and prompt for a new one. Use this if the agent rotated its token or you pasted the wrong value."
+            onClick={() => {
+              try { localStorage.removeItem("bastion_token"); } catch {}
+              setToken("");
+            }}
+          >
+            [reset token]
+          </button>
+        </div>
+      )}
 
       {chain && !chain.ok && (
         <div className="box box-alert px-3 py-2 mb-3 animate-pulse">
