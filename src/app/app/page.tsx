@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import BastionMark from "@/components/BastionMark";
 
 // ---------------------------------------------------------------------------
 // Consumer console.  Replaces the old terminal-style operator view, which is
@@ -414,20 +415,28 @@ export default function ConsoleHome() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-900 bg-zinc-950/80 backdrop-blur sticky top-0 z-10">
-        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className={`size-2.5 rounded-full ${linkError ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`} aria-hidden />
-            <span className="font-semibold tracking-tight">Bastion</span>
-            <span className="text-xs text-zinc-500">
-              {linkError === "token-rejected" ? "token mismatch" :
-               linkError === "agent-unreachable" ? "agent offline" :
-               linkError ? "issue" : "connected · 127.0.0.1"}
+        <div className="mx-auto max-w-5xl px-4 p3">
+            <BastionMark size={22} className={linkError ? "text-amber-400" : "text-emerald-400"} />
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold tracking-tight">Bastion</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500">
+                <span
+                  className={`size-1.5 rounded-full ${linkError ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`}
+                  aria-hidden
+                />
+                {linkError === "token-rejected" ? "token mismatch" :
+                 linkError === "agent-unreachable" ? "agent offline" :
+                 linkError ? "issue" : "connected · 127.0.0.1"}
+              </span>
+            </divkError ? "issue" : "connected · 127.0.0.1"}
             </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <button onClick={resetToken} className="text-zinc-400 hover:text-zinc-200 transition">
-              Reconnect
-            </button>
+            {linkError && (
+              <button onClick={resetToken} className="text-amber-400 hover:text-amber-300 transition">
+                Reconnect
+              </button>
+            )}
             <Link href="/app/operator" className="text-zinc-500 hover:text-zinc-300 transition text-xs">
               Advanced view →
             </Link>

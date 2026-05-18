@@ -1,4 +1,5 @@
 import AccessGateClient from "./wallet-access-client";
+import BastionMark from "@/components/BastionMark";
 
 const MATRIX = [
   { trait: "Open source codebase",                             bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
@@ -194,8 +195,9 @@ export default function LandingPage() {
       <section className="panel mb-10 p-5 sm:p-7 overflow-hidden">
         <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] items-start">
           <div>
-            <div className="text-[11px] tracking-[0.22em] uppercase text-[color:var(--color-ice)] mb-3">
-              Bastion // Local Defensive Sensor
+            <div className="flex items-center gap-2 text-[11px] tracking-[0.22em] uppercase text-[color:var(--color-ice)] mb-3">
+              <BastionMark size={18} className="text-[color:var(--color-phosphor)]" />
+              <span>Bastion // Local Defensive Sensor</span>
             </div>
             <pre className="text-[9px] sm:text-[11px] whitespace-pre overflow-x-auto mb-4 text-[color:var(--color-phosphor)]">{`
  ____    _    ____ _____ ___ ___  _   _
