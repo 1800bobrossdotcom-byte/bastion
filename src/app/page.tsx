@@ -225,9 +225,9 @@ export default function LandingPage() {
 |____/_/   \\_\\____/ |_| |___\\___/|_| \\_|
             `}</pre>
             <h1 className="text-3xl sm:text-5xl font-semibold text-[color:var(--color-phosphor)] leading-[1.1]">
-              The second opinion
+              Bastion : Defender Watchdog
               <br />
-              that watches Defender too.
+              &amp; Local Defensive Sensor
             </h1>
             <p className="mt-4 text-[color:var(--color-ice-dim)] max-w-2xl">
               Bastion is an open-source local sensor designed to run <em>alongside</em> Microsoft Defender,
