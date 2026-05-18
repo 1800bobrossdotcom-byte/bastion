@@ -224,6 +224,9 @@ export default function Home() {
   const [perfReport, setPerfReport] = useState<PerfReport | null>(null);
   const [perfRunning, setPerfRunning] = useState(false);
   const [hideNoise, setHideNoise] = useState(true);
+  const [sevFilter, setSevFilter] = useState<"all" | "alert" | "warn" | "info">("all");
+  const [ackedIds, setAckedIds] = useState<Set<number>>(new Set());
+  const [showResolved, setShowResolved] = useState(false);
   const [whyById, setWhyById] = useState<Record<number, WhyRowState>>({});
   const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [sentinelDraft, setSentinelDraft] = useState({
@@ -252,7 +255,123 @@ export default function Home() {
 
     const license = typeof window !== "undefined" ? localStorage.getItem("bastion_license") : null;
     if (license) setHasLicense(true);
+
+    // Best-effort migration of any legacy localStorage triage state from the
+    // previous client-side-only release.  Pulled into a one-shot push to the
+    // agent below once we have a token.
   }, []);
+
+  // Hydrate resolved triage from the agent whenever the token is set, and
+  // migrate any legacy localStorage markers into the durable store.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      // 1) one-shot migration of legacy markers (if any).
+      const legacy =
+        typeof window !== "undefined" ? localStorage.getItem("bastion_acked_ids") : null;
+      if (legacy) {
+        try {
+          const arr = JSON.parse(legacy) as number[];
+          if (Array.isArray(arr) && arr.length > 0) {
+            await fetch("http://127.0.0.1:7878/api/triage/resolve", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ ids: arr, note: "migrated-from-localStorage" }),
+            }).catch(() => {});
+          }
+          localStorage.removeItem("bastion_acked_ids");
+        } catch {}
+      }
+      // 2) load the canonical resolved set from the agent.
+      try {
+        const res = await fetch("http://127.0.0.1:7878/api/triage", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { ids: number[] };
+        if (!cancelled && Array.isArray(data.ids)) setAckedIds(new Set(data.ids));
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  async function postTriage(path: "resolve" | "unresolve", ids: number[]) {
+    if (!token || ids.length === 0) return false;
+    try {
+      const res = await fetch(`http://127.0.0.1:7878/api/triage/${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  async function resolveEvent(id: number) {
+    const next = new Set(ackedIds);
+    next.add(id);
+    setAckedIds(next);
+    const ok = await postTriage("resolve", [id]);
+    if (!ok) {
+      // roll back optimistic update on failure.
+      const rollback = new Set(next);
+      rollback.delete(id);
+      setAckedIds(rollback);
+      alert("triage save failed — agent unreachable. Resolve not persisted.");
+    }
+  }
+
+  async function unresolveEvent(id: number) {
+    const next = new Set(ackedIds);
+    next.delete(id);
+    setAckedIds(next);
+    const ok = await postTriage("unresolve", [id]);
+    if (!ok) {
+      const rollback = new Set(next);
+      rollback.add(id);
+      setAckedIds(rollback);
+      alert("triage save failed — agent unreachable. Reopen not persisted.");
+    }
+  }
+
+  async function clearResolved() {
+    if (ackedIds.size === 0) return;
+    if (!confirm(`Forget ${ackedIds.size} resolved markers? Original events stay in the merkle chain.`)) return;
+    const ids = Array.from(ackedIds);
+    const prev = new Set(ackedIds);
+    setAckedIds(new Set());
+    const ok = await postTriage("unresolve", ids);
+    if (!ok) {
+      setAckedIds(prev);
+      alert("triage clear failed — agent unreachable.");
+    }
+  }
+
+  async function resolveAllVisible() {
+    if (visible.length === 0) return;
+    if (!confirm(`Mark all ${visible.length} visible events as resolved? Original events stay in the merkle chain.`)) return;
+    const ids = visible.map((e) => e.id);
+    const prev = new Set(ackedIds);
+    const next = new Set(ackedIds);
+    ids.forEach((id) => next.add(id));
+    setAckedIds(next);
+    const ok = await postTriage("resolve", ids);
+    if (!ok) {
+      setAckedIds(prev);
+      alert("triage save failed — agent unreachable.");
+    }
+  }
 
   function unlockWithKey() {
     const key = licenseInput.trim().toUpperCase();
@@ -385,21 +504,26 @@ export default function Home() {
   }, [token]);
 
   const filteredBySource = filter === "all" ? events : events.filter((e) => e.source === filter);
-  const visible = hideNoise
-    ? filteredBySource.filter((e) => assessRisk(e).risk !== "noise")
-    : filteredBySource;
-  const noiseCount = filteredBySource.length - visible.length;
-  const sources = Array.from(new Set(events.map((e) => e.source))).sort();
+  const filteredBySev = sevFilter === "all" ? filteredBySource : filteredBySource.filter((e) => e.severity === sevFilter);
+  const filteredByNoise = hideNoise
+    ? filteredBySev.filter((e) => assessRisk(e).risk !== "noise")
+    : filteredBySev;
+  const visible = showResolved ? filteredByNoise : filteredByNoise.filter((e) => !ackedIds.has(e.id));
+  const noiseCount = filteredBySev.length - filteredByNoise.length;
+  const resolvedHiddenCount = showResolved ? 0 : filteredByNoise.length - visible.length;
+  // Counts are computed on unresolved events so the cards reflect what still needs attention.
+  const liveEvents = events.filter((e) => !ackedIds.has(e.id));
   const counts = {
-    alert: events.filter((e) => e.severity === "alert").length,
-    warn: events.filter((e) => e.severity === "warn").length,
-    info: events.filter((e) => e.severity === "info").length,
+    alert: liveEvents.filter((e) => e.severity === "alert").length,
+    warn: liveEvents.filter((e) => e.severity === "warn").length,
+    info: liveEvents.filter((e) => e.severity === "info").length,
     removed: events.filter(
       (e) =>
         e.source === "response" &&
         (e.kind === "file_quarantined" || e.kind === "process_killed")
     ).length,
   };
+  const sources = Array.from(new Set(events.map((e) => e.source))).sort();
 
   async function refreshVault(silent = true) {
     if (!token) return;
@@ -734,18 +858,30 @@ export default function Home() {
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-        <div className="box box-alert px-3 py-2">
-          <div className="text-[10px] opacity-70">ALERT</div>
+        <button
+          onClick={() => setSevFilter((v) => (v === "alert" ? "all" : "alert"))}
+          className={`box box-alert px-3 py-2 text-left hover:bg-[rgba(255,80,80,0.08)] cursor-pointer ${sevFilter === "alert" ? "ring-2 ring-[color:var(--color-red)]" : ""}`}
+          title="Click to filter the stream to ALERT events only. Click again to clear."
+        >
+          <div className="text-[10px] opacity-70">ALERT {sevFilter === "alert" ? "·active" : ""}</div>
           <div className="text-2xl">{String(counts.alert).padStart(3, "0")}</div>
-        </div>
-        <div className="box box-warn px-3 py-2">
-          <div className="text-[10px] opacity-70">WARN</div>
+        </button>
+        <button
+          onClick={() => setSevFilter((v) => (v === "warn" ? "all" : "warn"))}
+          className={`box box-warn px-3 py-2 text-left hover:bg-[rgba(255,200,80,0.08)] cursor-pointer ${sevFilter === "warn" ? "ring-2 ring-[color:var(--color-amber)]" : ""}`}
+          title="Click to filter the stream to WARN events only. Click again to clear."
+        >
+          <div className="text-[10px] opacity-70">WARN {sevFilter === "warn" ? "·active" : ""}</div>
           <div className="text-2xl">{String(counts.warn).padStart(3, "0")}</div>
-        </div>
-        <div className="box box-info px-3 py-2">
-          <div className="text-[10px] opacity-70">INFO</div>
+        </button>
+        <button
+          onClick={() => setSevFilter((v) => (v === "info" ? "all" : "info"))}
+          className={`box box-info px-3 py-2 text-left hover:bg-[rgba(0,255,102,0.06)] cursor-pointer ${sevFilter === "info" ? "ring-2 ring-[color:var(--color-phosphor)]" : ""}`}
+          title="Click to filter the stream to INFO events only. Click again to clear."
+        >
+          <div className="text-[10px] opacity-70">INFO {sevFilter === "info" ? "·active" : ""}</div>
           <div className="text-2xl">{String(counts.info).padStart(3, "0")}</div>
-        </div>
+        </button>
         <button
           onClick={() => setShowVault((v) => !v)}
           className="box px-3 py-2 text-left hover:bg-[rgba(0,255,102,0.06)] cursor-pointer"
@@ -937,6 +1073,35 @@ export default function Home() {
         >
           [hide noise{noiseCount > 0 ? `: ${noiseCount}` : ""}]
         </button>
+        <button
+          onClick={() => setShowResolved((v) => !v)}
+          className={`px-2 py-1 border text-xs ${
+            showResolved
+              ? "border-[color:var(--color-phosphor)] text-[color:var(--color-phosphor)] bg-[rgba(0,255,102,0.08)]"
+              : "border-[color:var(--color-phosphor-faint)] text-[color:var(--color-phosphor-dim)]"
+          }`}
+          title="Toggle visibility of events you have already marked resolved. Resolved markers are stored locally; the audit chain is never modified."
+        >
+          [{showResolved ? "hiding none" : `show resolved${resolvedHiddenCount > 0 ? `: ${resolvedHiddenCount}` : ""}`}]
+        </button>
+        {token && visible.length > 0 && (
+          <button
+            onClick={resolveAllVisible}
+            className="px-2 py-1 border border-[color:var(--color-phosphor-faint)] text-[color:var(--color-phosphor-dim)] hover:text-[color:var(--color-phosphor)] text-xs"
+            title="Mark every currently visible row as resolved. Does not delete anything from the merkle chain."
+          >
+            [resolve {visible.length}]
+          </button>
+        )}
+        {ackedIds.size > 0 && (
+          <button
+            onClick={clearResolved}
+            className="px-2 py-1 border border-[color:var(--color-phosphor-faint)] text-[color:var(--color-phosphor-dim)] hover:text-[color:var(--color-phosphor)] text-xs"
+            title="Forget local resolved markers. Events themselves are unaffected."
+          >
+            [reset triage: {ackedIds.size}]
+          </button>
+        )}
         {token && (
           <button
             onClick={runScan}
@@ -1107,6 +1272,23 @@ export default function Home() {
                   >
                     {whyState?.loading ? "[why…]" : whyState?.open ? "[hide why]" : "[why]"}
                   </button>
+                  {ackedIds.has(e.id) ? (
+                    <button
+                      onClick={() => unresolveEvent(e.id)}
+                      className="px-2 border border-[color:var(--color-phosphor-faint)] text-[color:var(--color-phosphor-dim)] hover:text-[color:var(--color-phosphor)]"
+                      title="Re-open this event. Removes the local resolved marker; the audit chain entry is unchanged."
+                    >
+                      [reopen]
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => resolveEvent(e.id)}
+                      className="px-2 border border-[color:var(--color-phosphor)] text-[color:var(--color-phosphor)] hover:bg-[rgba(0,255,102,0.1)]"
+                      title="Mark this event as resolved. Hides it from the stream and decrements the ALERT/WARN/INFO counters. Stored in localStorage; the merkle chain row is untouched."
+                    >
+                      [resolve]
+                    </button>
+                  )}
                 </div>
                 {whyState?.open && (
                   <div className="ml-[124px] mt-1 border border-[color:var(--color-phosphor-faint)] p-2 text-[10px]">
