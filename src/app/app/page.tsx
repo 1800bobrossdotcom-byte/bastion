@@ -176,6 +176,7 @@ export default function ConsoleHome() {
   const [scanReport, setScanReport] = useState<ScanReport | null>(null);
   const [perfRunning, setPerfRunning] = useState(false);
   const [perfReport, setPerfReport] = useState<PerfReport | null>(null);
+  const [perfFixed, setPerfFixed] = useState<Set<string>>(new Set());
   const [showSetup, setShowSetup] = useState(false);
 
   // ---- license + token hydration -----------------------------------------
@@ -341,6 +342,7 @@ export default function ConsoleHome() {
       }
       const text = await res.text();
       if (text) setPerfReport(JSON.parse(text) as PerfReport);
+      setPerfFixed(new Set());
     } catch (e) {
       alert(`Audit error: ${e}`);
     } finally {
@@ -562,19 +564,13 @@ export default function ConsoleHome() {
           ) : (
             <ul className="mt-4 space-y-2">
               {perfReport.findings.map((f) => (
-                <li key={f.id} className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm text-zinc-100">{f.title}</p>
-                      <p className="mt-0.5 text-xs text-zinc-500">Now: {f.current} → Recommended: {f.recommended}</p>
-                    </div>
-                    <span className={`text-[10px] uppercase tracking-wider whitespace-nowrap ${
-                      f.severity === "critical" ? "text-rose-400" :
-                      f.severity === "warn" ? "text-amber-400" :
-                      f.severity === "opportunity" ? "text-sky-400" : "text-zinc-500"
-                    }`}>{f.severity}</span>
-                  </div>
-                </li>
+                <PerfFindingRow
+                  key={f.id}
+                  finding={f}
+                  token={token}
+                  fixed={perfFixed.has(f.id)}
+                  onFixed={() => setPerfFixed((prev) => new Set(prev).add(f.id))}
+                />
               ))}
             </ul>
           )}
@@ -582,7 +578,7 @@ export default function ConsoleHome() {
             onClick={() => setPerfReport(null)}
             className="mt-6 w-full rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-medium text-zinc-950 hover:bg-emerald-400 transition"
           >
-            OK
+            Close
           </button>
         </Modal>
       )}
@@ -651,14 +647,84 @@ function EmptyState({ linkError }: { linkError: string }) {
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 bg-zinc-950/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4">
+      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border border-zinc-800 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-6 pb-3 border-b border-zinc-800">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} aria-label="Close" className="text-zinc-500 hover:text-zinc-200">✕</button>
         </div>
-        {children}
+        <div className="overflow-y-auto p-6 pt-4">
+          {children}
+        </div>
       </div>
     </div>
+  );
+}
+
+function PerfFindingRow({ finding, token, fixed, onFixed }: {
+  finding: PerfFinding;
+  token: string;
+  fixed: boolean;
+  onFixed: () => void;
+}) {
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string>("");
+  const f = finding;
+  const canFix = !!f.fix_command && !fixed;
+
+  async function applyFix() {
+    if (!f.fix_command || applying) return;
+    setApplying(true); setError("");
+    try {
+      const res = await fetch("http://127.0.0.1:7878/api/perf/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fix_command: f.fix_command }),
+      });
+      if (!res.ok) {
+        setError(res.status === 403 ? "Agent rejected the fix." : `HTTP ${res.status}`);
+        return;
+      }
+      onFixed();
+    } catch (e) {
+      setError(`Couldn't reach agent: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  const sevPill =
+    f.severity === "critical" ? "text-rose-400" :
+    f.severity === "warn" ? "text-amber-400" :
+    f.severity === "opportunity" ? "text-sky-400" : "text-zinc-500";
+
+  return (
+    <li className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-zinc-100">{f.title}</p>
+          <p className="mt-0.5 text-xs text-zinc-500">Now: {f.current} → Recommended: {f.recommended}</p>
+          {f.fix_command && (
+            <p className="mt-1 text-[10px] font-mono text-zinc-600 break-all">{f.fix_command}</p>
+          )}
+          {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
+        </div>
+        <div className="flex flex-col items-end gap-2 shrink-0">
+          <span className={`text-[10px] uppercase tracking-wider whitespace-nowrap ${sevPill}`}>
+            {fixed ? "fixed ✓" : f.severity}
+          </span>
+          {canFix && (
+            <button
+              onClick={applyFix}
+              disabled={applying}
+              className="rounded-md bg-emerald-500/90 px-2.5 py-1 text-xs font-medium text-zinc-950 hover:bg-emerald-400 disabled:opacity-60 transition whitespace-nowrap"
+              title={f.requires_admin ? "Will prompt for admin (UAC)" : undefined}
+            >
+              {applying ? "Applying…" : f.requires_admin ? "Fix (admin)" : "Fix it"}
+            </button>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 
