@@ -374,7 +374,8 @@ export default function Home() {
   }
 
   function unlockWithKey() {
-    const key = licenseInput.trim().toUpperCase();
+    // Keys are base64url (case-sensitive) — only strip whitespace, do not change case.
+    const key = licenseInput.replace(/\s+/g, "");
     if (!key) {
       setLicenseError("access key is required");
       return;

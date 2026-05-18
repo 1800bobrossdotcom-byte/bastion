@@ -61,9 +61,12 @@ export async function POST(req: Request) {
           Here is your Bastion console access key. Paste it at
           <a href="https://bastion.quest/app" style="color:#8ee8ff;">bastion.quest/app</a>.
         </p>
-        <div style="background:#111;border:1px solid #2a2a2a;padding:16px;word-break:break-all;color:#00ff66;font-size:13px;letter-spacing:0.04em;">
+        <div style="background:#111;border:1px solid #2a2a2a;padding:16px;word-break:break-all;color:#00ff66;font-size:13px;letter-spacing:0.04em;user-select:all;">
           ${key}
         </div>
+        <p style="color:#888;font-size:11px;margin-top:12px;">
+          Tip: triple-click the key above to select it cleanly. The key is case-sensitive — do not modify it.
+        </p>
         <p style="color:#555;font-size:11px;margin-top:24px;">
           If you pledged a donation, please send BTC or ETH to the addresses on bastion.quest — any amount is appreciated.<br/>
           Thank you for supporting open-source defensive tools.

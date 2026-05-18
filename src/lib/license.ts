@@ -33,7 +33,10 @@ export function createLicenseKey(payload: AccessPayload): string {
 }
 
 export function validateLicenseKey(key: string): { ok: boolean; payload?: AccessPayload; message?: string } {
-  const [prefix, packed, sig] = key.trim().split(".");
+  // Strip ALL whitespace (newlines, spaces, tabs) defensively — emails wrap
+  // long keys across lines and users sometimes paste with a stray newline.
+  const cleaned = key.replace(/\s+/g, "");
+  const [prefix, packed, sig] = cleaned.split(".");
 
   if (prefix !== "BSTN" || !packed || !sig) {
     return { ok: false, message: "invalid key format" };
