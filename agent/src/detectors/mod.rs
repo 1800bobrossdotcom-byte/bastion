@@ -8,6 +8,7 @@ pub mod boot_scan;
 pub mod camera_mic;
 pub mod canary;
 pub mod defender;
+pub mod defender_watchdog;
 pub mod dns;
 #[cfg(windows)]
 pub mod etw_file;
@@ -32,6 +33,7 @@ pub fn spawn_all(store: Arc<Store>) {
     tokio::spawn(registry_decoy::run(store.clone()));
     tokio::spawn(attestation::run(store.clone()));
     tokio::spawn(defender::run(store.clone()));
+    tokio::spawn(defender_watchdog::run(store.clone()));
     tokio::spawn(dns::run(store.clone()));
     tokio::spawn(fim::run(store.clone()));
     tokio::spawn(proc_fp::run(store.clone()));
