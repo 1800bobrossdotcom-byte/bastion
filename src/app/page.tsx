@@ -100,6 +100,8 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
   {
     group: "Roadmap (next updates)",
     items: [
+      { label: "Real-time on-access file scanning (ETW + AMSI provider) — detect & respond without a kernel driver", status: "partial", note: "in design" },
+      { label: "On-access kernel minifilter driver (blocks malicious writes pre-execution; Azure Trusted Signing)", status: "roadmap" },
       { label: "Persist resolve / triage state to agent DB (durable across reboots)", status: "shipped" },
       { label: "Restore-from-vault button + sha256 verify on restore", status: "roadmap" },
       { label: "Generic webhook ingest schema (Splunk / Elastic / Wazuh)", status: "roadmap" },

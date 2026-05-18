@@ -180,6 +180,22 @@ export default function ConsoleHome() {
   const [perfFixed, setPerfFixed] = useState<Set<string>>(new Set());
   const [showSetup, setShowSetup] = useState(false);
 
+  // hydrate persisted perf-fix state so resolved items stay resolved across
+  // refreshes / app restarts / repeated audits.  user can clear via the
+  // "reset fix state" button in the perf modal header.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("bastion_perf_fixed");
+      if (raw) {
+        const arr = JSON.parse(raw) as string[];
+        if (Array.isArray(arr)) setPerfFixed(new Set(arr));
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem("bastion_perf_fixed", JSON.stringify([...perfFixed])); } catch {}
+  }, [perfFixed]);
+
   // ---- license + token hydration -----------------------------------------
 
   useEffect(() => {
@@ -343,7 +359,9 @@ export default function ConsoleHome() {
       }
       const text = await res.text();
       if (text) setPerfReport(JSON.parse(text) as PerfReport);
-      setPerfFixed(new Set());
+      // do NOT clear perfFixed here — a fresh audit may re-surface items
+      // because the underlying setting hasn't taken effect yet (e.g. needs
+      // reboot).  user clears manually via the modal's "reset fix state".
     } catch (e) {
       alert(`Audit error: ${e}`);
     } finally {
@@ -574,9 +592,20 @@ export default function ConsoleHome() {
       {/* Perf results modal */}
       {perfReport && (
         <Modal onClose={() => setPerfReport(null)} title="Performance check">
-          <p className="text-sm text-zinc-400">
-            {perfReport.host.cpu_brand} · {perfReport.host.mem_used_gb.toFixed(1)} / {perfReport.host.mem_total_gb.toFixed(1)} GB RAM used · up {perfReport.host.uptime_hours.toFixed(1)}h
-          </p>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-zinc-400">
+              {perfReport.host.cpu_brand} · {perfReport.host.mem_used_gb.toFixed(1)} / {perfReport.host.mem_total_gb.toFixed(1)} GB RAM used · up {perfReport.host.uptime_hours.toFixed(1)}h
+            </p>
+            {perfFixed.size > 0 && (
+              <button
+                onClick={() => setPerfFixed(new Set())}
+                className="text-xs text-zinc-500 hover:text-emerald-300 transition whitespace-nowrap"
+                title="Forget which items you've marked fixed, so they show as actionable again"
+              >
+                Reset fix state
+              </button>
+            )}
+          </div>
           {perfReport.findings.length === 0 ? (
             <p className="mt-4 text-sm text-emerald-300">Nothing obvious to fix — your machine is in good shape.</p>
           ) : (
@@ -689,8 +718,25 @@ function PerfFindingRow({ finding, token, fixed, onFixed }: {
   const f = finding;
   const canFix = !!f.fix_command && !fixed;
 
+  // destructive commands need an extra confirm so a misclick doesn't
+  // restart / shut down the user's PC mid-work.
+  const isDestructive = !!f.fix_command && /\b(Restart-Computer|Stop-Computer|shutdown|Restart-Service|Stop-Service)\b/i.test(f.fix_command);
+  const restartsMachine = !!f.fix_command && /\b(Restart-Computer|shutdown\b.*\/r|shutdown\s+-r)\b/i.test(f.fix_command);
+
   async function applyFix() {
     if (!f.fix_command || applying) return;
+    if (restartsMachine) {
+      const ok = window.confirm(
+        "\u26A0  This will RESTART your computer immediately.\n\n" +
+        "Save any open work first. Click OK to restart now, or Cancel to skip."
+      );
+      if (!ok) return;
+    } else if (isDestructive) {
+      const ok = window.confirm(
+        `This will run: ${f.fix_command}\n\nIt may stop a running service. Continue?`
+      );
+      if (!ok) return;
+    }
     setApplying(true); setError("");
     try {
       const res = await fetch("http://127.0.0.1:7878/api/perf/apply", {
@@ -716,28 +762,35 @@ function PerfFindingRow({ finding, token, fixed, onFixed }: {
     f.severity === "opportunity" ? "text-sky-400" : "text-zinc-500";
 
   return (
-    <li className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
+    <li className={`rounded-lg border p-3 ${fixed ? "border-emerald-500/30 bg-emerald-500/5" : "border-zinc-800 bg-zinc-950/60"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm text-zinc-100">{f.title}</p>
           <p className="mt-0.5 text-xs text-zinc-500">Now: {f.current} → Recommended: {f.recommended}</p>
+          {restartsMachine && !fixed && (
+            <p className="mt-1 text-[11px] text-amber-400">⚠  Applying this will restart your computer.</p>
+          )}
           {f.fix_command && (
             <p className="mt-1 text-[10px] font-mono text-zinc-600 break-all">{f.fix_command}</p>
           )}
           {error && <p className="mt-1 text-xs text-rose-400">{error}</p>}
         </div>
         <div className="flex flex-col items-end gap-2 shrink-0">
-          <span className={`text-[10px] uppercase tracking-wider whitespace-nowrap ${sevPill}`}>
+          <span className={`text-[10px] uppercase tracking-wider whitespace-nowrap ${fixed ? "text-emerald-400" : sevPill}`}>
             {fixed ? "fixed ✓" : f.severity}
           </span>
           {canFix && (
             <button
               onClick={applyFix}
               disabled={applying}
-              className="rounded-md bg-emerald-500/90 px-2.5 py-1 text-xs font-medium text-zinc-950 hover:bg-emerald-400 disabled:opacity-60 transition whitespace-nowrap"
-              title={f.requires_admin ? "Will prompt for admin (UAC)" : undefined}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition whitespace-nowrap disabled:opacity-60 ${
+                restartsMachine
+                  ? "bg-amber-500/90 text-zinc-950 hover:bg-amber-400"
+                  : "bg-emerald-500/90 text-zinc-950 hover:bg-emerald-400"
+              }`}
+              title={restartsMachine ? "Restarts your PC — confirms first" : f.requires_admin ? "Will prompt for admin (UAC)" : undefined}
             >
-              {applying ? "Applying…" : f.requires_admin ? "Fix (admin)" : "Fix it"}
+              {applying ? "Applying…" : restartsMachine ? "Restart PC" : f.requires_admin ? "Fix (admin)" : "Fix it"}
             </button>
           )}
         </div>
