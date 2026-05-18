@@ -216,8 +216,8 @@ export default function LandingPage() {
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <a href="/app" className="btn-primary">Unlock Console</a>
-              <a href="https://github.com/1800bobrossdotcom/bastion/releases/latest" className="btn-ghost">Download Windows x64</a>
-              <a href="https://github.com/1800bobrossdotcom/bastion" className="btn-ghost">Source</a>
+              <a href="https://github.com/1800bobrossdotcom-byte/bastion/releases/latest" className="btn-ghost">Download Windows x64</a>
+              <a href="https://github.com/1800bobrossdotcom-byte/bastion" className="btn-ghost">Source</a>
             </div>
           </div>
           <aside className="panel-subtle p-4 text-xs">
