@@ -668,6 +668,7 @@ function SetupWizard({ tokenInput, setTokenInput, onSave, onCancel }: {
   onSave: () => void;
   onCancel?: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100 px-4 py-12">
       <div className="mx-auto max-w-2xl">
@@ -698,11 +699,40 @@ function SetupWizard({ tokenInput, setTokenInput, onSave, onCancel }: {
 
           <Step n={3} title="Paste your agent token">
             <p className="text-sm text-zinc-400">
-              The token was printed on first run and is saved at:
+              The agent printed a token on first run and saved it to a file on your PC. To find it:
             </p>
-            <code className="mt-2 block rounded bg-zinc-900 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 break-all">
-              %APPDATA%\bastion\bastion\data\token.txt
-            </code>
+            <ol className="mt-3 space-y-2 text-sm text-zinc-400 list-decimal pl-5">
+              <li>
+                Press <kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">Win</kbd> + <kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">R</kbd> to open the Run box.
+              </li>
+              <li>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>Paste this path and press Enter:</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText("%APPDATA%\\bastion\\bastion\\data");
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      } catch {}
+                    }}
+                    className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 hover:bg-zinc-800 transition"
+                  >
+                    {copied ? "Copied ✓" : "Copy path"}
+                  </button>
+                </div>
+                <code className="mt-2 block rounded bg-zinc-900 border border-zinc-800 px-3 py-2 text-xs text-zinc-300 break-all">
+                  %APPDATA%\bastion\bastion\data
+                </code>
+              </li>
+              <li>
+                A folder opens. Double-click <code className="text-zinc-300">token.txt</code> (Notepad opens it).
+              </li>
+              <li>
+                Select all (<kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">Ctrl</kbd>+<kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">A</kbd>), copy (<kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">Ctrl</kbd>+<kbd className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-xs text-zinc-300">C</kbd>), then paste it below.
+              </li>
+            </ol>
             <textarea
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
