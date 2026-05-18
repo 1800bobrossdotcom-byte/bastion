@@ -1,0 +1,70 @@
+;
+; BastionFilter.inf
+;
+; KMDF minifilter install file for Bastion on-access scanner (Path B).
+; Altitude 385201 is in the FSFilter Activity Monitor range — TEMPORARY for
+; dev. Production altitude in FSFilter Anti-Virus (320000-329999) is allocated
+; per-ISV by Microsoft (mail filteraltitudes@microsoft.com) once we have a
+; signed driver to ship.
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = "ActivityMonitor"
+ClassGuid   = {b86dff51-a31e-4bac-b3cf-e8cfe75c9fc2}
+Provider    = %Provider%
+DriverVer   =
+CatalogFile = BastionFilter.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir          = 12
+BastionFilter.DriverFiles = 12  ;%windir%\system32\drivers
+
+[SourceDisksFiles]
+BastionFilter.sys = 1,,
+
+[SourceDisksNames]
+1 = %DiskId1%,,,
+
+[DefaultInstall.NTamd64]
+OptionDesc = %ServiceDescription%
+CopyFiles  = BastionFilter.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService = %ServiceName%,,BastionFilter.Service
+
+[DefaultUninstall.NTamd64]
+DelFiles   = BastionFilter.DriverFiles
+LegacyUninstall = 1
+
+[DefaultUninstall.NTamd64.Services]
+DelService = %ServiceName%,0x200  ;SPSVCINST_STOPSERVICE
+
+[BastionFilter.Service]
+DisplayName    = %ServiceName%
+Description    = %ServiceDescription%
+ServiceBinary  = %12%\%DriverName%.sys
+Dependencies   = FltMgr
+ServiceType    = 2                  ;SERVICE_FILE_SYSTEM_DRIVER
+StartType      = 3                  ;SERVICE_DEMAND_START
+ErrorControl   = 1                  ;SERVICE_ERROR_NORMAL
+LoadOrderGroup = "FSFilter Activity Monitor"
+AddReg         = BastionFilter.AddRegistry
+
+[BastionFilter.AddRegistry]
+HKR,"Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Instances\"%DefaultInstance%,"Altitude",0x00000000,%Altitude%
+HKR,"Instances\"%DefaultInstance%,"Flags",0x00010001,0x0
+
+[BastionFilter.DriverFiles]
+%DriverName%.sys
+
+[Strings]
+Provider           = "Bastion"
+ServiceName        = "BastionFilter"
+ServiceDescription = "Bastion on-access file scanner"
+DriverName         = "BastionFilter"
+DiskId1            = "Bastion Filter Installation Disk"
+DefaultInstance    = "Bastion Instance"
+Altitude           = "385201"

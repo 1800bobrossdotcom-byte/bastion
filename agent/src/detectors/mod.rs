@@ -11,6 +11,8 @@ pub mod dns;
 #[cfg(windows)]
 pub mod etw_file;
 pub mod fim;
+#[cfg(windows)]
+pub mod minifilter_bridge;
 pub mod perf;
 pub mod proc_fp;
 pub mod process_lineage;
@@ -34,5 +36,7 @@ pub fn spawn_all(store: Arc<Store>) {
     tokio::spawn(scan_on_write::run(store.clone()));
     #[cfg(windows)]
     tokio::spawn(etw_file::run(store.clone()));
+    #[cfg(windows)]
+    tokio::spawn(minifilter_bridge::run(store.clone()));
     tokio::spawn(usb::run(store.clone()));
 }
