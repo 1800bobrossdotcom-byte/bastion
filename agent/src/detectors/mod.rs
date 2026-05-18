@@ -1,6 +1,7 @@
 use crate::store::Store;
 use std::sync::Arc;
 
+pub mod asr;
 pub mod attestation;
 pub mod autoruns;
 pub mod boot_scan;
@@ -24,6 +25,7 @@ pub mod usb;
 pub fn spawn_all(store: Arc<Store>) {
     tokio::spawn(process_net::run(store.clone()));
     tokio::spawn(process_lineage::run(store.clone()));
+    tokio::spawn(asr::run(store.clone()));
     tokio::spawn(autoruns::run(store.clone()));
     tokio::spawn(camera_mic::run(store.clone()));
     tokio::spawn(canary::run(store.clone()));
