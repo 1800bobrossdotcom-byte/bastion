@@ -144,6 +144,13 @@ impl Store {
                             updated_at TEXT NOT NULL
                         );",
                 )?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS triage (
+                event_id INTEGER PRIMARY KEY,
+                resolved_at TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT ''
+            );",
+        )?;
         // Best-effort migration for older DBs that pre-date the merkle columns.
         let _ = conn.execute("ALTER TABLE events ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''", []);
         let _ = conn.execute("ALTER TABLE events ADD COLUMN hash TEXT NOT NULL DEFAULT ''", []);
@@ -564,6 +571,45 @@ impl Store {
                 updated_at: r.get(5)?,
             })
         })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn triage_resolve(&self, ids: &[i64], note: &str) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now = Utc::now().to_rfc3339();
+        let mut n = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO triage(event_id, resolved_at, note) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(event_id) DO UPDATE SET resolved_at = excluded.resolved_at, note = excluded.note",
+            )?;
+            for id in ids {
+                n += stmt.execute(params![id, now, note])?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
+    pub fn triage_unresolve(&self, ids: &[i64]) -> Result<usize> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut n = 0usize;
+        {
+            let mut stmt = tx.prepare("DELETE FROM triage WHERE event_id = ?1")?;
+            for id in ids {
+                n += stmt.execute(params![id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(n)
+    }
+
+    pub fn triage_list(&self) -> Result<Vec<i64>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT event_id FROM triage ORDER BY event_id DESC")?;
+        let rows = stmt.query_map([], |r| r.get::<_, i64>(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 

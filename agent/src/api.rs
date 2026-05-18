@@ -47,6 +47,9 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
         .route("/api/forensic/export", post(forensic_export))
         .route("/api/perf/audit", get(perf_audit))
         .route("/api/perf/apply", post(perf_apply))
+        .route("/api/triage", get(triage_list))
+        .route("/api/triage/resolve", post(triage_resolve))
+        .route("/api/triage/unresolve", post(triage_unresolve))
         .with_state(state)
         .layer(cors);
 
@@ -944,4 +947,46 @@ async fn perf_apply(
     ));
 
     Ok(Json(outcome))
+}
+
+#[derive(Deserialize)]
+struct TriageBody {
+    ids: Vec<i64>,
+    #[serde(default)]
+    note: String,
+}
+
+async fn triage_list(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let ids = s.store.triage_list().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "ids": ids })))
+}
+
+async fn triage_resolve(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TriageBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let n = s
+        .store
+        .triage_resolve(&body.ids, &body.note)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "ok": true, "applied": n })))
+}
+
+async fn triage_unresolve(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TriageBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let n = s
+        .store
+        .triage_unresolve(&body.ids)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "ok": true, "applied": n })))
 }
