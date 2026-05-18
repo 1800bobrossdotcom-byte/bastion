@@ -101,18 +101,27 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
   {
     group: "Roadmap (next updates)",
     items: [
-      { label: "Real-time on-access file scanning (ETW + AMSI provider) — detect & respond without a kernel driver", status: "partial", note: "in design" },
-      { label: "On-access kernel minifilter driver (blocks malicious writes pre-execution; Azure Trusted Signing)", status: "roadmap" },
-      { label: "Persist resolve / triage state to agent DB (durable across reboots)", status: "shipped" },
+      // Path A — real-time on-access scan, user-mode
+      { label: "Unified scan engine (single chokepoint: dedupe + hash + MalwareBazaar match + auto-quarantine)", status: "shipped" },
+      { label: "Drop-directory watcher (Downloads / Desktop / Documents via ReadDirectoryChangesW)", status: "shipped" },
+      { label: "System-wide on-access scan via Microsoft-Windows-Kernel-File ETW (admin-gated, graceful fallback)", status: "shipped" },
+      { label: "AMSI provider DLL (PowerShell / Office / .NET scan hook) — cdylib + COM exports", status: "partial", note: "scaffold builds; IAntimalwareProvider2 vtable + named-pipe IPC pending; needs Trusted Signing to load on Win10 1903+" },
+      // Path B — kernel minifilter, blocks pre-execution
+      { label: "Kernel minifilter driver: pre-create capture + user-mode verdict bridge (fail-open on agent crash)", status: "partial", note: "KMDF source + INF + user-mode bridge scaffold landed; needs WDK build + EV cert + altitude allocation from Microsoft" },
+      { label: "Signed & loaded driver in production (EV cert → optional Partner Center attestation signing → Anti-Virus altitude)", status: "roadmap" },
+      // Triage / vault
       { label: "Restore-from-vault button + sha256 verify on restore", status: "roadmap" },
+      { label: "YARA scan integration into quarantine pipeline", status: "roadmap" },
+      // Integrations
       { label: "Generic webhook ingest schema (Splunk / Elastic / Wazuh)", status: "roadmap" },
       { label: "Sigma rule loader for custom detections", status: "roadmap" },
+      { label: "Optional remote forwarder for multi-host triage", status: "roadmap" },
+      { label: "Tor / Tailscale-friendly secondary bind", status: "roadmap" },
+      // Cross-platform
       { label: "macOS launchd + EndpointSecurity port of the agent", status: "roadmap" },
       { label: "Linux auditd + inotify port of the agent", status: "roadmap" },
+      // Supply chain
       { label: "Signed release artifacts (cosign + SLSA provenance)", status: "roadmap" },
-      { label: "Optional remote forwarder for multi-host triage", status: "roadmap" },
-      { label: "YARA scan integration into quarantine pipeline", status: "roadmap" },
-      { label: "Tor / Tailscale-friendly secondary bind", status: "roadmap" },
     ],
   },
 ];
