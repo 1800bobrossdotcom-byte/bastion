@@ -1,4 +1,5 @@
 mod api;
+mod ai_manager;
 mod blocklist;
 mod config;
 mod detectors;

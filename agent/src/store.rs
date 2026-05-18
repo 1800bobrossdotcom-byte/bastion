@@ -21,6 +21,16 @@ pub struct Event {
     pub hash: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectorConfig {
+    pub kind: String,
+    pub name: String,
+    pub enabled: bool,
+    pub secret: String,
+    pub config_json: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ChainStatus {
     pub ok: bool,
@@ -124,6 +134,16 @@ impl Store {
               added_at TEXT NOT NULL
             );",
         )?;
+                conn.execute_batch(
+                        "CREATE TABLE IF NOT EXISTS connectors (
+                            kind TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            enabled INTEGER NOT NULL,
+                            secret TEXT NOT NULL,
+                            config_json TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );",
+                )?;
         // Best-effort migration for older DBs that pre-date the merkle columns.
         let _ = conn.execute("ALTER TABLE events ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''", []);
         let _ = conn.execute("ALTER TABLE events ADD COLUMN hash TEXT NOT NULL DEFAULT ''", []);
@@ -199,6 +219,34 @@ impl Store {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn event_by_id(&self, id: i64) -> Result<Option<Event>> {
+        let conn = self.conn.lock().unwrap();
+        let row = conn
+            .query_row(
+                "SELECT id, ts, source, severity, kind, summary, details_json, prev_hash, hash
+                 FROM events WHERE id = ?1",
+                params![id],
+                |r| {
+                    let ts_str: String = r.get(1)?;
+                    Ok(Event {
+                        id: Some(r.get(0)?),
+                        ts: DateTime::parse_from_rfc3339(&ts_str)
+                            .map(|d| d.with_timezone(&Utc))
+                            .unwrap_or_else(|_| Utc::now()),
+                        source: r.get(2)?,
+                        severity: r.get(3)?,
+                        kind: r.get(4)?,
+                        summary: r.get(5)?,
+                        details_json: r.get(6)?,
+                        prev_hash: r.get(7)?,
+                        hash: r.get(8)?,
+                    })
+                },
+            )
+            .ok();
+        Ok(row)
     }
 
     /// Walk events oldest-to-newest, recomputing each hash and verifying
@@ -453,6 +501,68 @@ impl Store {
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
             ))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    pub fn upsert_connector(
+        &self,
+        kind: &str,
+        name: &str,
+        enabled: bool,
+        secret: &str,
+        config_json: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO connectors(kind, name, enabled, secret, config_json, updated_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(kind) DO UPDATE SET
+               name=excluded.name,
+               enabled=excluded.enabled,
+               secret=excluded.secret,
+               config_json=excluded.config_json,
+               updated_at=excluded.updated_at",
+            params![kind, name, enabled as i64, secret, config_json, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    pub fn connector_by_kind(&self, kind: &str) -> Result<Option<ConnectorConfig>> {
+        let conn = self.conn.lock().unwrap();
+        let row = conn
+            .query_row(
+                "SELECT kind, name, enabled, secret, config_json, updated_at FROM connectors WHERE kind = ?1",
+                params![kind],
+                |r| {
+                    Ok(ConnectorConfig {
+                        kind: r.get(0)?,
+                        name: r.get(1)?,
+                        enabled: r.get::<_, i64>(2)? != 0,
+                        secret: r.get(3)?,
+                        config_json: r.get(4)?,
+                        updated_at: r.get(5)?,
+                    })
+                },
+            )
+            .ok();
+        Ok(row)
+    }
+
+    pub fn list_connectors(&self) -> Result<Vec<ConnectorConfig>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT kind, name, enabled, secret, config_json, updated_at FROM connectors ORDER BY updated_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ConnectorConfig {
+                kind: r.get(0)?,
+                name: r.get(1)?,
+                enabled: r.get::<_, i64>(2)? != 0,
+                secret: r.get(3)?,
+                config_json: r.get(4)?,
+                updated_at: r.get(5)?,
+            })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

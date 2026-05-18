@@ -1,13 +1,14 @@
 use crate::{config::Config, store::Store};
 use anyhow::Result;
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
+use rand::RngCore;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -28,6 +29,12 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/events", get(events))
+        .route("/api/why/event/:id", get(why_event))
+        .route("/api/connectors", get(connectors_list))
+        .route("/api/connectors/sentinel", post(sentinel_save))
+        .route("/api/connectors/sentinel/pull", post(sentinel_pull))
+        .route("/api/connectors/sentinel/auth-status", get(sentinel_auth_status))
+        .route("/api/connectors/sentinel/ingest", post(sentinel_ingest))
         .route("/api/chain/verify", get(verify_chain))
         .route("/api/respond/kill-pid", post(respond_kill_pid))
         .route("/api/respond/quarantine", post(respond_quarantine))
@@ -75,6 +82,24 @@ async fn events(
     Ok(Json(evs))
 }
 
+async fn why_event(
+    Path(id): Path<i64>,
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let Some(ev) = s
+        .store
+        .event_by_id(id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    let why = crate::ai_manager::explain_event(&ev).await;
+    Ok(Json(why))
+}
+
 async fn verify_chain(
     State(s): State<AppState>,
     headers: HeaderMap,
@@ -82,6 +107,401 @@ async fn verify_chain(
     check_auth(&headers, &s.token)?;
     let status = s.store.verify_chain().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(status))
+}
+
+async fn connectors_list(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let connectors = s
+        .store
+        .list_connectors()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(connectors))
+}
+
+#[derive(Deserialize)]
+struct SentinelSaveBody {
+    name: Option<String>,
+    enabled: Option<bool>,
+    auth_mode: Option<String>,
+    tenant_id: Option<String>,
+    subscription_id: Option<String>,
+    resource_group: Option<String>,
+    workspace_name: Option<String>,
+    notes: Option<String>,
+}
+
+async fn sentinel_save(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SentinelSaveBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let secret = s
+        .store
+        .connector_by_kind("sentinel")
+        .ok()
+        .flatten()
+        .map(|c| c.secret)
+        .unwrap_or_else(|| {
+            let mut buf = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut buf);
+            hex::encode(buf)
+        });
+    let config = serde_json::json!({
+        "auth_mode": body.auth_mode.unwrap_or_else(|| "azure_cli".to_string()),
+        "tenant_id": body.tenant_id,
+        "subscription_id": body.subscription_id,
+        "resource_group": body.resource_group,
+        "workspace_name": body.workspace_name,
+        "notes": body.notes,
+    });
+    let name = body.name.unwrap_or_else(|| "Microsoft Sentinel".to_string());
+    let enabled = body.enabled.unwrap_or(true);
+    s.store
+        .upsert_connector("sentinel", &name, enabled, &secret, &config.to_string())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "kind": "sentinel",
+        "name": name,
+        "enabled": enabled,
+        "secret": secret,
+        "config": config,
+        "ingest_url": "http://127.0.0.1:7878/api/connectors/sentinel/ingest"
+    })))
+}
+
+#[derive(Deserialize)]
+struct SentinelPullBody {
+    top: Option<u32>,
+}
+
+async fn sentinel_pull(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SentinelPullBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let Some(connector) = s
+        .store
+        .connector_by_kind("sentinel")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if !connector.enabled {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let cfg: serde_json::Value = serde_json::from_str(&connector.config_json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let subscription_id = cfg
+        .get("subscription_id")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let resource_group = cfg
+        .get("resource_group")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    let workspace_name = cfg
+        .get("workspace_name")
+        .and_then(serde_json::Value::as_str)
+        .filter(|s| !s.is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    let token = azure_management_access_token().await.map_err(|e| {
+        tracing::warn!("sentinel pull auth failed: {e}");
+        StatusCode::SERVICE_UNAVAILABLE
+    })?;
+
+    let top = body.top.unwrap_or(20).clamp(1, 100);
+    let url = format!(
+        "https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.OperationalInsights/workspaces/{workspace_name}/providers/Microsoft.SecurityInsights/incidents?api-version=2024-01-01-preview&$top={top}"
+    );
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let resp = client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Ok(Json(serde_json::json!({
+            "ok": false,
+            "status": status.as_u16(),
+            "message": body,
+            "pulled": 0,
+            "ingested": 0,
+            "items": serde_json::Value::Array(Vec::new()),
+        })));
+    }
+
+    let payload: serde_json::Value = resp.json().await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let items = payload
+        .get("value")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut ingested = 0u64;
+    let mut preview = Vec::new();
+
+    for item in items.iter().take(top as usize) {
+        let title = item
+            .get("properties")
+            .and_then(|p| p.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Sentinel incident");
+        let sev = item
+            .get("properties")
+            .and_then(|p| p.get("severity"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("informational");
+        let status = item
+            .get("properties")
+            .and_then(|p| p.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let incident_id = item
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .or_else(|| item.get("id").and_then(serde_json::Value::as_str))
+            .map(ToOwned::to_owned);
+        let summary = format!("Sentinel incident pull: {title}");
+        let details = serde_json::json!({
+            "incident_id": incident_id,
+            "status": status,
+            "title": title,
+            "severity": sev,
+            "source": "sentinel-pull",
+            "workspace": workspace_name,
+            "resource_group": resource_group,
+            "subscription_id": subscription_id,
+            "raw": item,
+        });
+        let _ = s.store.insert_event(&crate::store::now_event(
+            "sentinel",
+            match sev.to_ascii_lowercase().as_str() {
+                "high" | "critical" => "alert",
+                "medium" | "low" => "warn",
+                _ => "info",
+            },
+            "incident_pull",
+            summary,
+            details,
+        ));
+        ingested += 1;
+        preview.push(serde_json::json!({
+            "title": title,
+            "severity": sev,
+            "status": status,
+        }));
+    }
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "pulled": items.len(),
+        "ingested": ingested,
+        "mode": cfg.get("auth_mode").and_then(serde_json::Value::as_str).unwrap_or("azure_cli"),
+        "items": preview,
+    })))
+}
+
+async fn sentinel_auth_status(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+
+    let Some(connector) = s
+        .store
+        .connector_by_kind("sentinel")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    else {
+        return Ok(Json(serde_json::json!({
+            "configured": false,
+            "az_available": false,
+            "workspace_reachable": false,
+            "message": "connector not configured",
+        })));
+    };
+
+    let mut az_available = false;
+    let output = tokio::process::Command::new("az")
+        .args(["account", "show", "--output", "json"])
+        .output()
+        .await;
+
+    let account_info = match output {
+        Ok(o) if o.status.success() => {
+            az_available = true;
+            serde_json::from_slice::<serde_json::Value>(&o.stdout).ok()
+        }
+        _ => None,
+    };
+
+    let mut workspace_reachable = false;
+    if az_available {
+        let token = match azure_management_access_token().await {
+            Ok(t) => t,
+            Err(_) => String::new(),
+        };
+        if !token.is_empty() {
+            let cfg: serde_json::Value =
+                serde_json::from_str(&connector.config_json).unwrap_or(serde_json::json!({}));
+            let subscription_id = cfg
+                .get("subscription_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let resource_group = cfg
+                .get("resource_group")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let workspace_name = cfg
+                .get("workspace_name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+
+            if !subscription_id.is_empty() && !resource_group.is_empty() && !workspace_name.is_empty() {
+                let url = format!(
+                    "https://management.azure.com/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/Microsoft.OperationalInsights/workspaces/{workspace_name}?api-version=2021-06-01"
+                );
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .ok();
+                if let Some(c) = client {
+                    let resp = c.get(url).bearer_auth(&token).send().await;
+                    workspace_reachable = resp.map(|r| r.status().is_success()).unwrap_or(false);
+                }
+            }
+        }
+    };
+
+    let user = account_info
+        .as_ref()
+        .and_then(|acc| acc.get("user"))
+        .and_then(|u| u.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+    let subscription = account_info
+        .as_ref()
+        .and_then(|acc| acc.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(ToOwned::to_owned);
+
+    Ok(Json(serde_json::json!({
+        "configured": true,
+        "az_available": az_available,
+        "workspace_reachable": workspace_reachable,
+        "user": user,
+        "subscription": subscription,
+        "message": match (az_available, workspace_reachable) {
+            (false, _) => "Azure CLI not available or not logged in. Run: az login",
+            (true, false) => "Azure CLI ready, but workspace not reachable. Check credentials and config.",
+            (true, true) => "Ready to pull incidents.",
+        }
+    })))
+}
+
+async fn azure_management_access_token() -> Result<String, String> {
+    if let Ok(token) = std::env::var("BASTION_AZURE_ACCESS_TOKEN") {
+        let token = token.trim().to_string();
+        if !token.is_empty() {
+            return Ok(token);
+        }
+    }
+
+    let output = tokio::process::Command::new("az")
+        .args([
+            "account",
+            "get-access-token",
+            "--resource",
+            "https://management.azure.com/",
+            "--query",
+            "accessToken",
+            "-o",
+            "tsv",
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("failed to run az CLI: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "az CLI returned {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if token.is_empty() {
+        return Err("az CLI returned an empty access token".to_string());
+    }
+    Ok(token)
+}
+
+#[derive(Deserialize)]
+struct SentinelIncidentBody {
+    title: String,
+    severity: Option<String>,
+    incident_id: Option<String>,
+    status: Option<String>,
+    description: Option<String>,
+    tactic: Option<String>,
+    technique: Option<String>,
+    entity: Option<String>,
+}
+
+async fn sentinel_ingest(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SentinelIncidentBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let secret = headers
+        .get("x-bastion-connector-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let Some(connector) = s
+        .store
+        .connector_by_kind("sentinel")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+    if !connector.enabled || connector.secret != secret {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let sev = body.severity.clone().unwrap_or_else(|| "info".to_string());
+    let summary = format!("Sentinel incident: {}", body.title);
+    let details = serde_json::json!({
+        "incident_id": body.incident_id,
+        "status": body.status,
+        "description": body.description,
+        "tactic": body.tactic,
+        "technique": body.technique,
+        "entity": body.entity,
+        "connector": "sentinel",
+    });
+    let _ = s.store.insert_event(&crate::store::now_event(
+        "sentinel",
+        &sev,
+        "incident_ingest",
+        summary,
+        details,
+    ));
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 // ---- response endpoints ----
