@@ -465,33 +465,42 @@ export default function ConsoleHome() {
         </section>
 
         {/* Quick actions */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <ActionCard
-            title="Run a full scan"
-            sub="Checks files, network, and decoys. ~10–30s."
-            busy={scanning}
-            busyLabel="Scanning…"
-            onClick={runScan}
-            primary
-          />
-          <ActionCard
-            title="Check performance"
-            sub="What's slowing your PC down."
-            busy={perfRunning}
-            busyLabel="Auditing…"
-            onClick={runPerf}
-          />
-          <ActionCard
-            title="Reconnect agent"
-            sub="Re-paste the token from your PC."
-            onClick={resetToken}
-          />
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 text-[11px] tracking-[0.18em] uppercase text-emerald-400/80">
+            <span className="inline-block h-3 w-[3px] bg-emerald-400 rounded-sm" />
+            Quick actions
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <ActionCard
+              title="Run a full scan"
+              sub="Checks files, network, and decoys. ~10–30s."
+              busy={scanning}
+              busyLabel="Scanning…"
+              onClick={runScan}
+              primary
+            />
+            <ActionCard
+              title="Check performance"
+              sub="What's slowing your PC down."
+              busy={perfRunning}
+              busyLabel="Auditing…"
+              onClick={runPerf}
+            />
+            <ActionCard
+              title="Reconnect agent"
+              sub="Re-paste the token from your PC."
+              onClick={resetToken}
+            />
+          </div>
         </section>
 
         {/* Recent activity */}
         <section>
           <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-lg font-semibold">Recent activity</h2>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <span className="inline-block h-4 w-[3px] bg-emerald-400 rounded-sm" />
+              Recent activity
+            </h2>
             <div className="text-xs text-zinc-500">
               {events.length} total · {visible.length} unresolved
             </div>
@@ -615,13 +624,13 @@ function ActionCard({ title, sub, onClick, busy, busyLabel, primary }: {
     <button
       onClick={onClick}
       disabled={busy}
-      className={`text-left rounded-xl border p-4 transition disabled:opacity-60 ${
+      className={`group text-left rounded-xl border p-4 transition disabled:opacity-60 ${
         primary
-          ? "border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20"
-          : "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/80"
+          ? "border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 hover:border-emerald-400/60"
+          : "border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/80 hover:border-emerald-500/40"
       }`}
     >
-      <div className={`text-sm font-medium ${primary ? "text-emerald-200" : "text-zinc-100"}`}>
+      <div className={`text-sm font-medium transition-colors ${primary ? "text-emerald-200" : "text-zinc-100 group-hover:text-emerald-200"}`}>
         {busy ? (busyLabel ?? "Working…") : title}
       </div>
       <div className="mt-1 text-xs text-zinc-500">{sub}</div>

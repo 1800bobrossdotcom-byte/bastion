@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import BastionMark from "@/components/BastionMark";
 
 type Event = {
   id: number;
@@ -814,11 +816,15 @@ export default function Home() {
       <pre className="text-[10px] sm:text-xs whitespace-pre overflow-x-auto">{BANNER}</pre>
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 mt-1 mb-3 text-xs">
-        <span className="text-[color:var(--color-phosphor-dim)]">
+        <span className="inline-flex items-center gap-2 text-[color:var(--color-phosphor-dim)]">
+          <BastionMark size={14} className="text-[color:var(--color-phosphor)]" />
           v0.2 // local defensive sensor
         </span>
-        <span className="text-[color:var(--color-phosphor-dim)]">
-          link: 127.0.0.1:7878 {lastTickAt ? `· last ${lastTickAt.toLocaleTimeString()}` : ""}
+        <span className="inline-flex items-center gap-3 text-[color:var(--color-phosphor-dim)]">
+          <Link href="/app" className="text-[color:var(--color-phosphor)] hover:underline">
+            ← Simple view
+          </Link>
+          <span>link: 127.0.0.1:7878 {lastTickAt ? `· last ${lastTickAt.toLocaleTimeString()}` : ""}</span>
         </span>
       </div>
 
