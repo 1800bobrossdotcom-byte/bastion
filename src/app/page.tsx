@@ -109,6 +109,11 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
       // Path B — kernel minifilter, blocks pre-execution
       { label: "Kernel minifilter driver: pre-create capture + user-mode verdict bridge (fail-open on agent crash)", status: "partial", note: "KMDF source + INF + user-mode bridge scaffold landed; needs WDK build + EV cert + altitude allocation from Microsoft" },
       { label: "Signed & loaded driver in production (EV cert → optional Partner Center attestation signing → Anti-Virus altitude)", status: "roadmap" },
+      // Behavioural layer
+      { label: "ASR-style behavioural rules (Office→script-host, browser→LOLBin, encoded PowerShell, mshta remote URL, certutil downloader, WMI shell spawn, rundll32 side-load)", status: "shipped" },
+      { label: "YARA into scan_engine (community + custom rules over every scanned file)", status: "roadmap" },
+      { label: "Defender Watchdog (alert when real-time protection off / exclusions added / Tamper Protection disabled / signatures stale)", status: "shipped" },
+      { label: "Driver / service drift surveillance (every new kernel driver: signer chain + Authenticode + first-seen) — BYOVD defence", status: "roadmap" },
       // Triage / vault
       { label: "Restore-from-vault button + sha256 verify on restore", status: "roadmap" },
       { label: "YARA scan integration into quarantine pipeline", status: "roadmap" },
@@ -194,6 +199,7 @@ const SCREEN_ANNOTATIONS: { region: string; what: string; backed_by: string }[] 
 ];
 
 const HONESTY = [
+  "Bastion is designed to coexist with Microsoft Defender, not replace it. Defender stays on; we are a second sensor with our own view.",
   "Bastion is a defensive sensor. It does not block kernel rootkits or nation-state zero-days.",
   "It runs locally and ships nothing to any cloud unless you explicitly configure a bridge (Sentinel, ntfy).",
   "It cannot stop an attacker who already has SYSTEM privileges and can disable services.",
@@ -219,14 +225,20 @@ export default function LandingPage() {
 |____/_/   \\_\\____/ |_| |___\\___/|_| \\_|
             `}</pre>
             <h1 className="text-3xl sm:text-5xl font-semibold text-[color:var(--color-phosphor)] leading-[1.1]">
-              Detection-first security,
+              The second opinion
               <br />
-              without the black box.
+              that watches Defender too.
             </h1>
             <p className="mt-4 text-[color:var(--color-ice-dim)] max-w-2xl">
-              Bastion is a local Windows sensor with a tamper-evident audit stream, response controls,
-              and optional Sentinel pull mode. It is intentionally transparent: you can read what it does,
-              verify what it logged, and decide what action to take.
+              Bastion is an open-source local sensor designed to run <em>alongside</em> Microsoft Defender,
+              not replace it. It covers the surfaces Microsoft structurally won&apos;t — camera and mic forensics,
+              USB drift, kernel-driver provenance, and Defender&apos;s own tamper state — while keeping you in control
+              with a tamper-evident audit chain and human-readable receipts for every action.
+            </p>
+            <p className="mt-3 text-[11px] text-[color:var(--color-ice-dim)] max-w-2xl italic opacity-80">
+              The names aren&apos;t an accident. A <span className="text-[color:var(--color-phosphor)] not-italic">bastion</span> is
+              the projecting wall that gives a <span className="text-[color:var(--color-phosphor)] not-italic">defender</span> the
+              firing angles a flat curtain wall can&apos;t. Same fortress, different jobs.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
               <a href="/app" className="btn-primary">Unlock Console</a>
@@ -260,7 +272,9 @@ export default function LandingPage() {
       <section className="panel mb-10 p-5 sm:p-6 overflow-x-auto">
         <h2 className="text-xl sm:text-2xl text-[color:var(--color-phosphor)] mb-2">Comparison Snapshot</h2>
         <p className="text-[color:var(--color-ice-dim)] mb-2">
-          Directional comparison of default product behavior against eight named endpoint products. Not every enterprise add-on is represented.
+          Directional comparison of default product behavior. Bastion is built to run
+          <em> alongside</em> one of these engines (usually Defender), not in place of it — the rows below
+          show where a second sensor adds coverage the default engine doesn&apos;t provide.
         </p>
         <p className="text-[10px] text-[color:var(--color-ice-dim)] mb-4">
           Legend: <span className="text-[color:var(--color-phosphor)]">yes</span> ·{" "}
