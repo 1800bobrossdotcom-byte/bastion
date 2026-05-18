@@ -415,7 +415,8 @@ export default function ConsoleHome() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-900 bg-zinc-950/80 backdrop-blur sticky top-0 z-10">
-        <div className="mx-auto max-w-5xl px-4 p3">
+        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <BastionMark size={22} className={linkError ? "text-amber-400" : "text-emerald-400"} />
             <div className="flex items-baseline gap-2">
               <span className="font-semibold tracking-tight">Bastion</span>
@@ -428,8 +429,7 @@ export default function ConsoleHome() {
                  linkError === "agent-unreachable" ? "agent offline" :
                  linkError ? "issue" : "connected · 127.0.0.1"}
               </span>
-            </divkError ? "issue" : "connected · 127.0.0.1"}
-            </span>
+            </div>
           </div>
           <div className="flex items-center gap-3 text-sm">
             {linkError && (
