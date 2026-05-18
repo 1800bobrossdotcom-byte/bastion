@@ -775,7 +775,7 @@ export default function Home() {
 
   if (!hasLicense) {
     return (
-      <main className="min-h-dvh px-4 py-8 max-w-4xl mx-auto text-sm leading-relaxed">
+      <main className="terminal-theme min-h-dvh px-4 py-8 max-w-4xl mx-auto text-sm leading-relaxed">
         <section className="panel p-6 sm:p-8">
           <div className="text-[11px] tracking-[0.2em] uppercase text-[color:var(--color-ice)] mb-3">
             Bastion Console
@@ -810,7 +810,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-dvh px-4 py-4 max-w-[1100px] mx-auto text-sm leading-snug">
+    <main className="terminal-theme min-h-dvh px-4 py-4 max-w-[1100px] mx-auto text-sm leading-snug">
       <pre className="text-[10px] sm:text-xs whitespace-pre overflow-x-auto">{BANNER}</pre>
 
       <div className="flex flex-wrap items-baseline justify-between gap-2 mt-1 mb-3 text-xs">

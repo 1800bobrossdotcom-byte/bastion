@@ -190,7 +190,7 @@ const HONESTY = [
 
 export default function LandingPage() {
   return (
-    <main className="min-h-dvh px-4 py-8 max-w-6xl mx-auto text-sm leading-relaxed">
+    <main className="terminal-theme min-h-dvh px-4 py-8 max-w-6xl mx-auto text-sm leading-relaxed">
       <section className="panel mb-10 p-5 sm:p-7 overflow-hidden">
         <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr] items-start">
           <div>

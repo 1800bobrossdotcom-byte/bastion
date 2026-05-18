@@ -234,7 +234,7 @@ export default function ConsoleHome() {
         fetch("http://127.0.0.1:7878/api/chain/verify", { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (!evRes.ok) {
-        setLinkError(evRes.status === 401 ? "agent rejected the token" : `agent returned HTTP ${evRes.status}`);
+        setLinkError(evRes.status === 401 ? "token-rejected" : `agent returned HTTP ${evRes.status}`);
         return;
       }
       setLinkError("");
@@ -245,7 +245,7 @@ export default function ConsoleHome() {
         if (chJson) setChain(chJson);
       }
     } catch {
-      setLinkError("can't reach the agent at 127.0.0.1:7878 — is it running?");
+      setLinkError("agent-unreachable");
     }
   }, [token]);
 
@@ -260,14 +260,26 @@ export default function ConsoleHome() {
 
   const visible = useMemo(() => events.filter((e) => !ackedIds.has(e.id)), [events, ackedIds]);
 
-  const overallStatus = useMemo<{ risk: Risk; headline: string; sub: string }>(() => {
-    if (linkError) return { risk: "watch", headline: "Agent offline", sub: "Open Bastion on your PC to resume monitoring." };
+  const overallStatus = useMemo<{ risk: Risk; headline: string; sub: string; action?: { label: string; onClick: () => void } }>(() => {
+    if (linkError === "token-rejected") return {
+      risk: "concern",
+      headline: "Reconnect needed",
+      sub: "The agent is running but doesn't recognise this token. Paste the current one from your PC to resume monitoring.",
+      action: { label: "Reconnect", onClick: resetToken },
+    };
+    if (linkError === "agent-unreachable") return {
+      risk: "watch",
+      headline: "Agent offline",
+      sub: "Bastion isn't running on this machine. Launch it from your Start menu to resume monitoring.",
+    };
+    if (linkError) return { risk: "watch", headline: "Agent issue", sub: linkError };
     if (chain && !chain.ok) return { risk: "danger", headline: "Audit log was tampered with", sub: `Chain broke at event ${chain.broken_at}. Treat the machine as compromised.` };
     const danger  = visible.filter((e) => explain(e).risk === "danger").length;
     const concern = visible.filter((e) => explain(e).risk === "concern").length;
     if (danger  > 0) return { risk: "danger",  headline: `${danger} thing${danger === 1 ? "" : "s"} need${danger === 1 ? "s" : ""} your attention`, sub: "Review the items below and decide whether to resolve or investigate." };
     if (concern > 0) return { risk: "concern", headline: `${concern} item${concern === 1 ? "" : "s"} worth a look`, sub: "Probably nothing — but a human eye is recommended." };
     return { risk: "ok", headline: "You're protected", sub: events.length ? "Recent activity looks normal." : "Quiet so far — Bastion will tell you if anything changes." };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkError, chain, visible, events.length]);
 
   // ---- mutators -----------------------------------------------------------
@@ -402,9 +414,13 @@ export default function ConsoleHome() {
       <header className="border-b border-zinc-900 bg-zinc-950/80 backdrop-blur sticky top-0 z-10">
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="size-2.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden />
+            <div className={`size-2.5 rounded-full ${linkError ? "bg-amber-400" : "bg-emerald-400 animate-pulse"}`} aria-hidden />
             <span className="font-semibold tracking-tight">Bastion</span>
-            <span className="text-xs text-zinc-500">connected · 127.0.0.1</span>
+            <span className="text-xs text-zinc-500">
+              {linkError === "token-rejected" ? "token mismatch" :
+               linkError === "agent-unreachable" ? "agent offline" :
+               linkError ? "issue" : "connected · 127.0.0.1"}
+            </span>
           </div>
           <div className="flex items-center gap-3 text-sm">
             <button onClick={resetToken} className="text-zinc-400 hover:text-zinc-200 transition">
@@ -425,6 +441,14 @@ export default function ConsoleHome() {
             <div className="flex-1 min-w-0">
               <h1 className={`text-2xl font-semibold ${RISK_STYLE[overallStatus.risk].text}`}>{overallStatus.headline}</h1>
               <p className="mt-1 text-zinc-400">{overallStatus.sub}</p>
+              {overallStatus.action && (
+                <button
+                  onClick={overallStatus.action.onClick}
+                  className="mt-4 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-emerald-400 transition"
+                >
+                  {overallStatus.action.label}
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -613,10 +637,7 @@ function EmptyState({ linkError }: { linkError: string }) {
   return (
     <div className="rounded-xl border border-dashed border-zinc-800 p-8 text-center">
       {linkError ? (
-        <>
-          <p className="text-zinc-300">{linkError}</p>
-          <p className="mt-2 text-xs text-zinc-500">Once the agent is running on your PC, this list fills in automatically.</p>
-        </>
+        <p className="text-xs text-zinc-500">Once the agent reconnects, recent activity will appear here.</p>
       ) : (
         <>
           <p className="text-zinc-300">Nothing here yet.</p>
