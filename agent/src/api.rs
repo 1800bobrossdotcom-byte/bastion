@@ -172,7 +172,9 @@ mod tests {
 }
 
 async fn health() -> impl IntoResponse {
-    Json(serde_json::json!({ "ok": true }))
+    // Unauthenticated on purpose: the console uses it to show which agent
+    // build it is talking to before a token has been pasted.
+    Json(serde_json::json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") }))
 }
 
 #[derive(Deserialize)]
