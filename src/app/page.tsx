@@ -2,46 +2,20 @@ import AccessGateClient from "./wallet-access-client";
 import BastionMark from "@/components/BastionMark";
 import Image from "next/image";
 
-const MATRIX = [
-  { trait: "Open source codebase",                             bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
-  { trait: "No required cloud account",                        bastion: "yes",     mcafee: "no",      norton: "no",      defender: "yes",     crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
-  { trait: "Tamper-evident merkle event chain",                bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "partial", sentinelone: "partial", malwarebytes: "no",      huntress: "no" },
-  { trait: "Local-first operation on 127.0.0.1",               bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "no",      sentinelone: "no",      malwarebytes: "yes",     huntress: "no" },
-  { trait: "Human-readable forensic receipts",                 bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "partial", sentinelone: "partial", malwarebytes: "no",      huntress: "partial" },
-  { trait: "File integrity monitor on system paths",           bastion: "yes",     mcafee: "partial", norton: "partial", defender: "partial", crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "no",      huntress: "partial" },
-  { trait: "Canary / decoy token detection",                   bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "no",      huntress: "yes" },
-  { trait: "Per-process kill / quarantine from one UI",        bastion: "yes",     mcafee: "yes",     norton: "yes",     defender: "yes",     crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "yes",     huntress: "partial" },
-  { trait: "Reversible quarantine vault (audited)",            bastion: "yes",     mcafee: "partial", norton: "partial", defender: "yes",     crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "yes",     huntress: "no" },
-  { trait: "URLhaus / OpenPhish DNS blocklist refresh",        bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "no",      sentinelone: "no",      malwarebytes: "partial", huntress: "no" },
-  { trait: "Process fingerprint + lineage tracking",           bastion: "yes",     mcafee: "no",      norton: "no",      defender: "partial", crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "no",      huntress: "partial" },
-  { trait: "Autoruns / persistence drift surfacing",           bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "no",      huntress: "yes" },
-  { trait: "Camera / mic access surveillance log",             bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
-  { trait: "Microsoft Sentinel ingest bridge",                 bastion: "yes",     mcafee: "no",      norton: "no",      defender: "n/a",     crowdstrike: "yes",     sentinelone: "yes",     malwarebytes: "no",      huntress: "yes" },
-  { trait: "Per-event WHY explanation (LLM-optional)",         bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "partial", sentinelone: "partial", malwarebytes: "no",      huntress: "partial" },
-  { trait: "Performance audit (power plan / GPU / RAM)",       bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
-  { trait: "Donation-based pricing",                           bastion: "yes",     mcafee: "no",      norton: "no",      defender: "n/a",     crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
-  { trait: "No telemetry shipped off-device",                  bastion: "yes",     mcafee: "no",      norton: "no",      defender: "no",      crowdstrike: "no",      sentinelone: "no",      malwarebytes: "no",      huntress: "no" },
+// What each layer does. Bastion is not an antivirus and is not compared
+// against one: Defender stays on, Bastion watches what it doesn't show you.
+const ADDS: { defender: string; bastion: string }[] = [
+  { defender: "Malware prevention and real-time blocking", bastion: "An independent second view of processes, persistence, DNS and files" },
+  { defender: "Its own protection settings", bastion: "Defender Watchdog: alerts if protection, tamper protection or signatures degrade, or a new exclusion appears" },
+  { defender: "Cloud-delivered intelligence", bastion: "Local-first evidence: nothing leaves the device by default" },
+  { defender: "Windows event log entries", bastion: "A hash-chained event history that shows if it was edited afterwards" },
+  { defender: "—", bastion: "Persistence drift: Run keys, services, scheduled tasks, hosts file, Startup folder" },
+  { defender: "—", bastion: "Camera and microphone access log, per app" },
+  { defender: "—", bastion: "Canary files and registry decoys that alert on any touch" },
+  { defender: "—", bastion: "Operator receipts: what was seen, its SHA-256, what was done, and the audit trail" },
 ];
 
-const VENDOR_COLS = [
-  { key: "bastion",      label: "Bastion",      highlight: true },
-  { key: "defender",     label: "Defender" },
-  { key: "mcafee",       label: "McAfee" },
-  { key: "norton",       label: "Norton" },
-  { key: "malwarebytes", label: "Malwarebytes" },
-  { key: "huntress",     label: "Huntress" },
-  { key: "crowdstrike",  label: "CrowdStrike" },
-  { key: "sentinelone",  label: "SentinelOne" },
-];
-
-const CELL_CLASS: Record<string, string> = {
-  yes:     "text-[color:var(--color-phosphor)]",
-  partial: "text-[color:var(--color-amber)]",
-  no:      "text-[color:var(--color-ice-dim)]",
-  "n/a":   "text-[color:var(--color-ice-dim)] opacity-60",
-};
-
-// Checklist: what Bastion v0.2 actually does on your machine, grouped so a
+// Checklist: what Bastion v0.4 actually does on your machine, grouped so a
 // reader can audit the marketing copy against the code in /agent/src.
 const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "partial" | "roadmap"; note?: string }[] }[] = [
   {
@@ -65,19 +39,20 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
       { label: "Append-only event store (sqlite)", status: "shipped" },
       { label: "Merkle audit chain over every event row (tamper-evident)", status: "shipped" },
       { label: "Boot integrity rollup before steady-state detectors", status: "shipped" },
-      { label: "Local DPAPI-sealed secrets storage", status: "shipped", note: "Windows only" },
-      { label: "Forensic export bundle (signed zip)", status: "shipped" },
+      { label: "Attestation signing key sealed with Windows DPAPI", status: "shipped", note: "the API token is a plain file protected by your user profile" },
+      { label: "Forensic export bundle (events, chain verification, head hash, quarantine manifests)", status: "shipped", note: "the zip itself is not signed yet" },
     ],
   },
   {
     group: "Response (operator action)",
     items: [
       { label: "Kill PID with audited reason", status: "shipped" },
-      { label: "Quarantine to reversible vault (sha256 + original path receipt)", status: "shipped" },
+      { label: "Quarantine to evidence vault (file copied with sha256 + original path receipt before removal)", status: "shipped" },
       { label: "Trust a fingerprint or a whole exe (suppresses future noise)", status: "shipped" },
       { label: "Resolve / re-open per-event triage state", status: "shipped" },
       { label: "Run full scan on demand", status: "shipped" },
       { label: "Performance audit + elevated apply for safe recommendations", status: "shipped" },
+      { label: "Junk cleanup, program review and machine health score", status: "partial", note: "agent CLI + API in v0.4.0; console screen pending" },
     ],
   },  {
     group: "Bridges",
@@ -94,7 +69,7 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
       { label: "Severity counters (ALERT/WARN/INFO) clickable to filter", status: "shipped" },
       { label: "Hide-noise toggle + risk classification chip on each row", status: "shipped" },
       { label: "Per-event WHY explanation (causal chain + AI manager)", status: "shipped" },
-      { label: "Quarantine vault list + reversible restore", status: "shipped" },
+      { label: "Quarantine vault list", status: "shipped", note: "restore is on the roadmap" },
       { label: "Source filter chips (proc_fp / autoruns / camera_mic / …)", status: "shipped" },
     ],
   },
@@ -126,7 +101,12 @@ const CHECKLIST: { group: string; items: { label: string; status: "shipped" | "p
       { label: "macOS launchd + EndpointSecurity port of the agent", status: "roadmap" },
       { label: "Linux auditd + inotify port of the agent", status: "roadmap" },
       // Supply chain
-      { label: "Signed release artifacts (cosign + SLSA provenance)", status: "roadmap" },
+      { label: "Releases built from source in GitHub Actions with SHA-256 sums, SBOM and Sigstore build provenance", status: "shipped", note: "from v0.4.0" },
+      { label: "Dependency audit (RustSec) on every change", status: "shipped" },
+      { label: "Authenticode-signed installer", status: "roadmap", note: "needs a code-signing certificate" },
+      { label: "Reproducible (bit-for-bit) builds", status: "roadmap" },
+      { label: "Signed forensic export zip", status: "roadmap" },
+      { label: "Independent security review", status: "roadmap" },
     ],
   },
 ];
@@ -201,7 +181,7 @@ const SCREEN_ANNOTATIONS: { region: string; what: string; backed_by: string }[] 
 const HONESTY = [
   "Bastion is designed to coexist with Microsoft Defender, not replace it. Defender stays on; we are a second sensor with our own view.",
   "Bastion is a defensive sensor. It does not block kernel rootkits or nation-state zero-days.",
-  "It runs locally and ships nothing to any cloud unless you explicitly configure a bridge (Sentinel, ntfy).",
+  "No telemetry leaves the device by default. Data goes out only through integrations you explicitly configure (Sentinel, ntfy, the optional AI explanation bridge). Threat feeds are downloaded, never uploaded to.",
   "It cannot stop an attacker who already has SYSTEM privileges and can disable services.",
   "The merkle chain is tamper-evident, not tamper-proof: it tells you the log was edited, not that it can't be.",
   "Quarantine is best-effort: locked or in-use originals are copied to vault but may not be removed in place.",
@@ -230,10 +210,10 @@ export default function LandingPage() {
               &amp; Local Defensive Sensor
             </h1>
             <p className="mt-4 text-[color:var(--color-ice-dim)] max-w-2xl">
-              Bastion is an open-source local sensor designed to run <em>alongside</em> Microsoft Defender,
-              not replace it. It covers the surfaces Microsoft structurally won&apos;t — camera and mic forensics,
-              USB drift, kernel-driver provenance, and Defender&apos;s own tamper state — while keeping you in control
-              with a tamper-evident audit chain and human-readable receipts for every action.
+              <strong className="text-[color:var(--color-ice)]">Microsoft Defender protects your machine. Bastion watches the gaps.</strong>{" "}
+              Bastion is not an antivirus. It is an open-source local sensor that runs <em>alongside</em> Defender and
+              covers the surfaces Defender doesn&apos;t show you — its own tamper state, persistence drift, camera and mic
+              access, USB, canaries — with a tamper-evident event history and human-readable receipts for every action.
             </p>
             <p className="mt-3 text-[11px] text-[color:var(--color-ice-dim)] max-w-2xl italic opacity-80">
               The names aren&apos;t an accident. A <span className="text-[color:var(--color-phosphor)] not-italic">bastion</span> is
@@ -244,7 +224,14 @@ export default function LandingPage() {
               <a href="/app" className="btn-primary">Unlock Console</a>
               <a href="https://github.com/1800bobrossdotcom-byte/bastion/releases/latest" className="btn-ghost">Download Windows x64</a>
               <a href="https://github.com/1800bobrossdotcom-byte/bastion" className="btn-ghost">Source</a>
+              <a href="https://github.com/1800bobrossdotcom-byte/bastion/blob/master/SECURITY.md" className="btn-ghost">Security model</a>
             </div>
+            <p className="mt-3 text-[11px] text-[color:var(--color-ice-dim)] max-w-2xl">
+              Every release is built from the tagged source on GitHub&apos;s runners and ships with SHA-256 sums, an SBOM and
+              a signed build-provenance record. Verify a download with{" "}
+              <code>gh attestation verify &lt;file&gt; -R 1800bobrossdotcom-byte/bastion</code>. Installers are not yet
+              Authenticode-signed, so Windows SmartScreen will warn on first run.
+            </p>
           </div>
           <aside className="panel-subtle p-4 text-xs">
             <div className="text-[color:var(--color-ice)] mb-2 uppercase tracking-[0.16em]">Honesty Scope</div>
@@ -270,41 +257,23 @@ export default function LandingPage() {
       </section>
 
       <section className="panel mb-10 p-5 sm:p-6 overflow-x-auto">
-        <h2 className="text-xl sm:text-2xl text-[color:var(--color-phosphor)] mb-2">Comparison Snapshot</h2>
-        <p className="text-[color:var(--color-ice-dim)] mb-2">
-          Directional comparison of default product behavior. Bastion is built to run
-          <em> alongside</em> one of these engines (usually Defender), not in place of it — the rows below
-          show where a second sensor adds coverage the default engine doesn&apos;t provide.
+        <h2 className="text-xl sm:text-2xl text-[color:var(--color-phosphor)] mb-2">What Bastion Adds to Defender</h2>
+        <p className="text-[color:var(--color-ice-dim)] mb-4">
+          Keep Defender on. Bastion doesn&apos;t replace it or compete with it — it gives you an independent local view
+          and the evidence behind every alert.
         </p>
-        <p className="text-[10px] text-[color:var(--color-ice-dim)] mb-4">
-          Legend: <span className="text-[color:var(--color-phosphor)]">yes</span> ·{" "}
-          <span className="text-[color:var(--color-amber)]">partial</span> ·{" "}
-          <span className="opacity-70">no</span> · n/a
-        </p>
-        <table className="w-full min-w-[920px] text-xs border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="border-b border-[color:var(--color-line)] text-[color:var(--color-ice)]">
-              <th className="text-left py-2 pr-3">Trait</th>
-              {VENDOR_COLS.map((v) => (
-                <th
-                  key={v.key}
-                  className={`text-left py-2 pr-3 ${v.highlight ? "text-[color:var(--color-phosphor)]" : ""}`}
-                >
-                  {v.label}
-                </th>
-              ))}
+              <th className="text-left py-2 pr-4 w-1/2">Microsoft Defender</th>
+              <th className="text-left py-2 pr-3 w-1/2 text-[color:var(--color-phosphor)]">+ Bastion</th>
             </tr>
           </thead>
           <tbody>
-            {MATRIX.map((row) => (
-              <tr key={row.trait} className="border-b border-[color:var(--color-line-soft)] text-[color:var(--color-ice-dim)]">
-                <td className="py-2 pr-3 text-[color:var(--color-ice)]">{row.trait}</td>
-                {VENDOR_COLS.map((v) => {
-                  const val = (row as unknown as Record<string, string>)[v.key];
-                  return (
-                    <td key={v.key} className={`py-2 pr-3 ${CELL_CLASS[val] ?? ""}`}>{val}</td>
-                  );
-                })}
+            {ADDS.map((row) => (
+              <tr key={row.bastion} className="border-b border-[color:var(--color-line-soft)] align-top">
+                <td className="py-2 pr-4 text-[color:var(--color-ice-dim)]">{row.defender}</td>
+                <td className="py-2 pr-3 text-[color:var(--color-ice)]">{row.bastion}</td>
               </tr>
             ))}
           </tbody>
@@ -408,7 +377,7 @@ export default function LandingPage() {
           <ol className="space-y-1 text-xs text-[color:var(--color-ice-dim)]">
             <li>1. Enter your email and a USD donation amount ($0.00 = free).</li>
             <li>2. Press <strong className="text-[color:var(--color-phosphor)]">Get Access Key</strong> — we email your signed key immediately.</li>
-            <li>3. Open <a href="/app" className="text-[color:var(--color-phosphor)]">/app</a>, paste your key, then paste the agent bearer token from <code>%APPDATA%\bastion\data\token.txt</code>.</li>
+            <li>3. Open <a href="/app" className="text-[color:var(--color-phosphor)]">/app</a>, paste your key, then paste the agent bearer token from <code>%APPDATA%\bastion\bastion\data\token.txt</code>.</li>
             <li>4. If you wish to donate, send BTC or ETH to the addresses above.</li>
           </ol>
         </article>
