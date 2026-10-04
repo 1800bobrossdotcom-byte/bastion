@@ -1,0 +1,4 @@
+[submodule "dashboard"]
+	path = dashboard
+	url = https://github.com/1800bobrossdotcom-byte/bastion.git
+	branch = dashboard-site
