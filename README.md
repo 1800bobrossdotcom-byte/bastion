@@ -55,6 +55,10 @@ API (bearer token, same as the rest):
 
 It's a **monitoring + alerting** tool that surfaces things commodity malware and noisy spyware do, so you notice them.
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for the threat model, privileges, network destinations, API protections and release-integrity status. Report vulnerabilities privately via GitHub → Security → Report a vulnerability.
+
 ## Run
 
 ```powershell

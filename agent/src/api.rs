@@ -1,8 +1,10 @@
 use crate::{config::Config, store::Store};
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::Response,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
@@ -10,7 +12,7 @@ use axum::{
 use serde::Deserialize;
 use rand::RngCore;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 #[derive(Clone)]
 struct AppState {
@@ -21,8 +23,11 @@ struct AppState {
 pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
     let state = AppState { store, token: cfg.token.clone() };
 
+    // Only local dashboards (localhost / 127.0.0.1 on any port, or the
+    // Tauri shell) may make cross-origin calls. A random website the user
+    // visits gets no CORS grant, so the browser won't let it read responses.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| is_local_origin(origin)))
         .allow_headers(Any)
         .allow_methods(Any);
 
@@ -59,7 +64,8 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
         .route("/api/triage/resolve", post(triage_resolve))
         .route("/api/triage/unresolve", post(triage_unresolve))
         .with_state(state)
-        .layer(cors);
+        .layer(cors)
+        .layer(middleware::from_fn(reject_foreign_host));
 
     let listener = tokio::net::TcpListener::bind(&cfg.bind).await?;
     tracing::info!("api listening on http://{}", cfg.bind);
@@ -70,7 +76,86 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
 fn check_auth(headers: &HeaderMap, token: &str) -> Result<(), StatusCode> {
     let h = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or("");
     let expected = format!("Bearer {token}");
-    if h == expected { Ok(()) } else { Err(StatusCode::UNAUTHORIZED) }
+    if constant_time_eq(h.as_bytes(), expected.as_bytes()) { Ok(()) } else { Err(StatusCode::UNAUTHORIZED) }
+}
+
+/// Compare without an early exit so response timing doesn't leak how much
+/// of the token a guess got right.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    // Strip the port; bracketed IPv6 keeps its brackets.
+    let name = if host.starts_with('[') {
+        host.split(']').next().map(|h| format!("{h}]")).unwrap_or_default()
+    } else {
+        host.rsplit_once(':').map(|(h, _)| h.to_string()).unwrap_or_else(|| host.to_string())
+    };
+    matches!(name.to_ascii_lowercase().as_str(), "127.0.0.1" | "localhost" | "[::1]")
+}
+
+fn is_local_origin(origin: &HeaderValue) -> bool {
+    let Ok(o) = origin.to_str() else { return false };
+    let o = o.to_ascii_lowercase();
+    if o == "tauri://localhost" || o == "http://tauri.localhost" || o == "https://tauri.localhost" {
+        return true;
+    }
+    match o.strip_prefix("http://").or_else(|| o.strip_prefix("https://")) {
+        Some(rest) if !rest.contains('/') => is_loopback_host(rest),
+        _ => false,
+    }
+}
+
+/// DNS-rebinding guard: a hostile page can point its own domain at
+/// 127.0.0.1, which makes the browser treat our API as same-origin. The Host
+/// header still carries the attacker's name, so anything that isn't a
+/// loopback name is refused before it reaches a handler.
+async fn reject_foreign_host(req: Request, next: Next) -> Result<Response, StatusCode> {
+    let host = req.headers().get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !is_loopback_host(host) {
+        tracing::warn!("api: rejected request with non-loopback Host header");
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(next.run(req).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loopback_hosts() {
+        for h in ["127.0.0.1:7878", "localhost:7878", "LOCALHOST", "[::1]:7878"] {
+            assert!(is_loopback_host(h), "{h}");
+        }
+        for h in ["evil.com", "evil.com:7878", "127.0.0.1.evil.com:7878", "", "localhost.evil.com"] {
+            assert!(!is_loopback_host(h), "{h}");
+        }
+    }
+
+    #[test]
+    fn local_origins_only() {
+        let ok = |s: &str| is_local_origin(&HeaderValue::from_str(s).unwrap());
+        assert!(ok("http://localhost:3000"));
+        assert!(ok("http://127.0.0.1:7878"));
+        assert!(ok("tauri://localhost"));
+        assert!(ok("https://tauri.localhost"));
+        assert!(!ok("https://evil.com"));
+        assert!(!ok("http://localhost.evil.com"));
+        assert!(!ok("http://127.0.0.1.nip.io"));
+        assert!(!ok("null"));
+    }
+
+    #[test]
+    fn token_compare() {
+        assert!(constant_time_eq(b"Bearer abc", b"Bearer abc"));
+        assert!(!constant_time_eq(b"Bearer abd", b"Bearer abc"));
+        assert!(!constant_time_eq(b"Bearer ab", b"Bearer abc"));
+    }
 }
 
 async fn health() -> impl IntoResponse {

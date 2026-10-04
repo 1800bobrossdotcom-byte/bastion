@@ -61,11 +61,26 @@ fn new_id() -> String {
 pub fn quarantine_file(store: &Store, path: &Path, reason: &str) -> Result<QuarantineRecord> {
     let path_s = path.to_string_lossy().to_string();
 
+    // Resolve `..`, case, 8.3 short names and links before any check, so the
+    // guards below compare real locations rather than spellings.
+    let real = fs::canonicalize(path).with_context(|| format!("cannot resolve: {}", path_s))?;
+    let meta = fs::symlink_metadata(path).with_context(|| format!("stat failed: {}", path_s))?;
+    if !meta.is_file() {
+        anyhow::bail!("refusing to quarantine something that is not a regular file");
+    }
+
     // Refuse to quarantine paths inside our own data dir — would let an
     // attacker prompt us to evict our own evidence.
     if let Some(proj) = ProjectDirs::from("cam", "bastion", "bastion") {
-        if path.starts_with(proj.data_dir()) {
+        let data = fs::canonicalize(proj.data_dir()).unwrap_or_else(|_| proj.data_dir().to_path_buf());
+        if real.starts_with(&data) {
             anyhow::bail!("refusing to quarantine path inside agent data dir");
+        }
+    }
+    // ...or the agent's own binary.
+    if let Ok(exe) = std::env::current_exe().and_then(fs::canonicalize) {
+        if real == exe {
+            anyhow::bail!("refusing to quarantine the agent itself");
         }
     }
 
