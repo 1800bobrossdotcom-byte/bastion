@@ -3,6 +3,8 @@
 #
 #   tag push v*        -> build, attest, and create a DRAFT release
 #                         (a maintainer reviews and publishes it)
+#   manual run on master -> same as a tag push for v<agent/Cargo.toml version>;
+#                         the tag is created when the draft is published
 #   push to claude/**  -> same build as a dry run; artifacts are uploaded to
 #                         the workflow run only, nothing is attested or released
 #
@@ -16,6 +18,7 @@ on:
   push:
     tags: ["v*"]
     branches: ["claude/**"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,6 +26,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   DASHBOARD_REF: dashboard-site
+  # Real releases: a v* tag push, or a manual run on master. Everything else
+  # is a dry run that only uploads workflow artifacts.
+  PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
 
 jobs:
   build:
@@ -114,7 +120,7 @@ jobs:
           cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
 
       - name: Attest build provenance
-        if: startsWith(github.ref, 'refs/tags/')
+        if: env.PUBLISH == 'true'
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
@@ -130,7 +136,7 @@ jobs:
   release:
     name: Draft GitHub release
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -170,6 +176,8 @@ jobs:
         with:
           draft: true
           make_latest: true
+          tag_name: v${{ needs.build.outputs.version }}
+          target_commitish: ${{ github.sha }}
           name: BASTION v${{ needs.build.outputs.version }}
           body_path: notes.md
           files: dist/*
