@@ -23,9 +23,10 @@ struct AppState {
 pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
     let state = AppState { store, token: cfg.token.clone() };
 
-    // Only local dashboards (localhost / 127.0.0.1 on any port, or the
-    // Tauri shell) may make cross-origin calls. A random website the user
-    // visits gets no CORS grant, so the browser won't let it read responses.
+    // Only the dashboard may make cross-origin calls: the hosted console at
+    // bastion.quest (which the desktop app also loads), the Tauri shell, and
+    // local dev servers. A random website the user visits gets no CORS
+    // grant, so the browser won't let it read responses.
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| is_local_origin(origin)))
         .allow_headers(Any)
@@ -98,10 +99,19 @@ fn is_loopback_host(host: &str) -> bool {
     matches!(name.to_ascii_lowercase().as_str(), "127.0.0.1" | "localhost" | "[::1]")
 }
 
+/// Exact origins allowed besides loopback dev servers.
+const DASHBOARD_ORIGINS: &[&str] = &[
+    "https://bastion.quest",
+    "https://www.bastion.quest",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+];
+
 fn is_local_origin(origin: &HeaderValue) -> bool {
     let Ok(o) = origin.to_str() else { return false };
     let o = o.to_ascii_lowercase();
-    if o == "tauri://localhost" || o == "http://tauri.localhost" || o == "https://tauri.localhost" {
+    if DASHBOARD_ORIGINS.contains(&o.as_str()) {
         return true;
     }
     match o.strip_prefix("http://").or_else(|| o.strip_prefix("https://")) {
@@ -144,6 +154,9 @@ mod tests {
         assert!(ok("http://127.0.0.1:7878"));
         assert!(ok("tauri://localhost"));
         assert!(ok("https://tauri.localhost"));
+        assert!(ok("https://bastion.quest"));
+        assert!(!ok("https://bastion.quest.evil.com"));
+        assert!(!ok("http://bastion.quest"));
         assert!(!ok("https://evil.com"));
         assert!(!ok("http://localhost.evil.com"));
         assert!(!ok("http://127.0.0.1.nip.io"));

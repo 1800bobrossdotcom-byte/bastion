@@ -29,7 +29,7 @@ A local, user-mode monitoring and response agent that runs **alongside Microsoft
 
 - Bound to loopback only.
 - Every endpoint except `/api/health` requires `Authorization: Bearer <token>`. The token is 256 random bits, generated on first run and stored in the per-user data dir. It is compared in constant time.
-- **Browser isolation:** CORS is granted only to `localhost` / `127.0.0.1` origins and the Tauri shell. Requests whose `Host` header is not a loopback name are refused (DNS-rebinding guard).
+- **Browser isolation:** CORS is granted only to the dashboard: `https://bastion.quest` (the hosted console, which the desktop app also loads), the Tauri shell, and `localhost` / `127.0.0.1` dev servers. The bearer token is kept in that dashboard's browser storage, so the bastion.quest deployment is part of the trust boundary. Requests whose `Host` header is not a loopback name are refused (DNS-rebinding guard).
 - **No client-supplied commands are executed.** Perf and health fixes run only if the exact command string was produced by a fresh audit on the agent. Junk cleanup takes category ids, not paths, and re-resolves every folder itself. Uninstall takes an id and launches that program's own registered uninstaller.
 - Quarantine resolves the real path first (`..`, case, short names, links). It refuses directories, the agent's data dir, and the agent's own binary. Quarantined files are **copied to the vault before deletion** and kept as evidence.
 

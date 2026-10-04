@@ -6,6 +6,17 @@ mod detectors;
 mod dga;
 #[cfg(windows)]
 mod dpapi;
+// DPAPI is Windows-only; elsewhere the agent still builds (for CI and tests)
+// and attestation reports that key sealing is unavailable.
+#[cfg(not(windows))]
+mod dpapi {
+    pub fn seal(_: &[u8]) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("DPAPI is only available on Windows")
+    }
+    pub fn unseal(_: &[u8]) -> anyhow::Result<Vec<u8>> {
+        anyhow::bail!("DPAPI is only available on Windows")
+    }
+}
 mod forensic;
 mod hashlist;
 mod maintenance;
