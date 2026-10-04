@@ -19,6 +19,16 @@ A local, user-mode monitoring and response agent that runs **alongside Microsoft
 | A malicious website trying to drive the local API from your browser | Nation-state targeted implants (Pegasus-class) |
 | Silent edits to Bastion's own event history | Physical access with disk-level tampering |
 
+## Security assumptions
+
+Bastion's guarantees hold only while these are true:
+
+- The Windows kernel and the signed Microsoft components it relies on (ETW, DPAPI, Defender) are not compromised.
+- The attacker does not already have SYSTEM or administrator rights.
+- The Bastion binary on disk is the one that was released (verify it, see below).
+- The signed-in user is trusted; Bastion protects that user, not against them.
+- The bastion.quest deployment that hosts the console is not compromised, because it holds the API token in browser storage.
+
 ## Privileges
 
 - The agent runs as **your user**, non-elevated. The installer registers a per-user logon scheduled task (`RunLevel Limited`). There is no Windows service and no driver.
@@ -58,17 +68,19 @@ Events live in a local SQLite database in your per-user data dir (`%APPDATA%\bas
 
 ## Release integrity — current state
 
-Being explicit about what is **not done yet**:
+What is done, and what is not done yet. The checked items apply from v0.4.0 on; earlier releases were built by hand.
 
 - [x] Source is public.
-- [x] SHA-256 of the installer is published on the download page.
-- [ ] Authenticode-signed installer
-- [ ] Reproducible builds
-- [ ] Signed provenance (cosign / SLSA)
-- [ ] SBOM and automated dependency audit (`cargo audit`) in CI
+- [x] Releases are built on GitHub's runners from the tagged commit (`.github/workflows/release.yml`). The installer's bundled agent is built in the same run, never taken from a committed binary.
+- [x] `SHA256SUMS.txt` attached to every release.
+- [x] CycloneDX SBOM attached to every release.
+- [x] Sigstore-signed build provenance (`gh attestation verify <file> -R 1800bobrossdotcom-byte/bastion`).
+- [x] `cargo audit` (RustSec) runs in CI and fails the build on any advisory.
+- [ ] Authenticode-signed installer (needs a code-signing certificate)
+- [ ] Reproducible builds (bit-for-bit)
 - [ ] Independent security review
 
-Until those are done, build from source if you need to be certain the binary matches the code:
+Until the open items are done, you can also build from source:
 
 ```powershell
 git clone https://github.com/1800bobrossdotcom-byte/bastion

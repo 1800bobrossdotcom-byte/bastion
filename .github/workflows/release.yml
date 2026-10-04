@@ -1,0 +1,175 @@
+# Builds every shipped binary from source on GitHub's runners and publishes
+# them with checksums, an SBOM and signed build provenance.
+#
+#   tag push v*        -> build, attest, and create a DRAFT release
+#                         (a maintainer reviews and publishes it)
+#   push to claude/**  -> same build as a dry run; artifacts are uploaded to
+#                         the workflow run only, nothing is attested or released
+#
+# The desktop installer bundles the agent as a Tauri sidecar. The sidecar is
+# always the agent built in this run, never a binary committed to the repo,
+# so the installer traces back to this exact commit.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: ["claude/**"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  DASHBOARD_REF: dashboard-site
+
+jobs:
+  build:
+    name: Build Windows x64
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write      # sigstore signing for build provenance
+      attestations: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          crate=$(grep -m1 '^version' agent/Cargo.toml | cut -d'"' -f2)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag" != "$crate" ]]; then
+              echo "::error::tag v$tag does not match agent/Cargo.toml version $crate"
+              exit 1
+            fi
+          fi
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # ---- agent ---------------------------------------------------------
+      - name: Test agent
+        working-directory: agent
+        run: cargo test --workspace --locked
+
+      - name: Build agent
+        working-directory: agent
+        run: cargo build --release --locked
+
+      - name: SBOM (CycloneDX)
+        working-directory: agent
+        shell: bash
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --format json --override-filename bastion-agent.cdx
+          ls -la *.cdx.json
+
+      # ---- desktop installer --------------------------------------------
+      - name: Check out dashboard
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DASHBOARD_REF }}
+          path: dashboard-src
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bundle freshly built agent as sidecar
+        shell: bash
+        run: |
+          mkdir -p dashboard-src/src-tauri/binaries
+          cp agent/target/release/bastion-agent.exe \
+             dashboard-src/src-tauri/binaries/bastion-agent-x86_64-pc-windows-msvc.exe
+          # The window loads https://bastion.quest/app; Tauri still requires
+          # a local frontendDist to exist at build time.
+          mkdir -p dashboard-src/out
+          [ -f dashboard-src/out/index.html ] || \
+            echo '<!doctype html><meta http-equiv="refresh" content="0;url=https://bastion.quest/app">' \
+              > dashboard-src/out/index.html
+          printf '{ "version": "%s" }\n' "${{ steps.version.outputs.version }}" \
+            > dashboard-src/src-tauri/tauri.release.json
+
+      - name: Build installer
+        working-directory: dashboard-src
+        run: |
+          npm ci
+          npx tauri build --bundles nsis --config src-tauri/tauri.release.json
+
+      # ---- collect + checksum -------------------------------------------
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          v=${{ steps.version.outputs.version }}
+          mkdir dist
+          cp agent/target/release/bastion-agent.exe "dist/bastion-agent-$v-x64.exe"
+          cp dashboard-src/src-tauri/target/release/bundle/nsis/*-setup.exe "dist/BASTION_${v}_x64-setup.exe"
+          cp agent/bastion-agent.cdx.json "dist/bastion-agent-$v.cdx.json"
+          cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/*.exe
+            dist/*.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bastion-${{ steps.version.outputs.version }}-windows-x64
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bastion-${{ needs.build.outputs.version }}-windows-x64
+          path: dist
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          v=${{ needs.build.outputs.version }}
+          {
+            echo "## BASTION v$v — Windows x64"
+            echo
+            echo "Built from commit [\`${GITHUB_SHA:0:7}\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA) by [workflow run #$GITHUB_RUN_NUMBER]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo "The installer's bundled agent is the \`bastion-agent\` built in that same run."
+            echo
+            echo "### SHA-256"
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
+            echo
+            echo "### Verify"
+            echo '```powershell'
+            echo "Get-FileHash .\\BASTION_${v}_x64-setup.exe -Algorithm SHA256"
+            echo "gh attestation verify .\\BASTION_${v}_x64-setup.exe -R $GITHUB_REPOSITORY"
+            echo '```'
+            echo "\`gh attestation verify\` checks a Sigstore-signed statement that this file was built by this repository's release workflow from the commit above."
+            echo
+            echo "Not yet Authenticode-signed: Windows SmartScreen will warn on first run. See [SECURITY.md]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/SECURITY.md)."
+          } > notes.md
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          make_latest: true
+          name: BASTION v${{ needs.build.outputs.version }}
+          body_path: notes.md
+          files: dist/*

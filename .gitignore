@@ -17,3 +17,6 @@ ntfy.txt
 # Bastion mobile keystore backup — NEVER commit
 KEYSTORE_BACKUP_DO_NOT_COMMIT/
 *.keystore
+
+# generated SBOMs
+*.cdx.json
