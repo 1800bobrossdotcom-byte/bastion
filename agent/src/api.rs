@@ -47,6 +47,14 @@ pub async fn serve(cfg: Config, store: Arc<Store>) -> Result<()> {
         .route("/api/forensic/export", post(forensic_export))
         .route("/api/perf/audit", get(perf_audit))
         .route("/api/perf/apply", post(perf_apply))
+        .route("/api/maint/overview", get(maint_overview))
+        .route("/api/maint/junk/scan", get(maint_junk_scan))
+        .route("/api/maint/junk/clean", post(maint_junk_clean))
+        .route("/api/maint/large-files", get(maint_large_files))
+        .route("/api/maint/programs", get(maint_programs))
+        .route("/api/maint/programs/uninstall", post(maint_uninstall))
+        .route("/api/maint/health", get(maint_health))
+        .route("/api/maint/health/apply", post(maint_health_apply))
         .route("/api/triage", get(triage_list))
         .route("/api/triage/resolve", post(triage_resolve))
         .route("/api/triage/unresolve", post(triage_unresolve))
@@ -946,6 +954,145 @@ async fn perf_apply(
         }),
     ));
 
+    Ok(Json(outcome))
+}
+
+// ---- maintenance (cleanup / programs / health) ----
+
+async fn maint_overview(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    Ok(Json(crate::maintenance::overview().await))
+}
+
+async fn maint_junk_scan(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    Ok(Json(crate::maintenance::junk::scan().await))
+}
+
+async fn maint_junk_clean(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<crate::maintenance::junk::CleanRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    // Only category ids cross the wire; junk::clean re-resolves every path
+    // from its own definitions, so the client can't aim it elsewhere.
+    let report = crate::maintenance::junk::clean(&body).await;
+    if !report.dry_run {
+        let failed = report.results.iter().filter(|r| !r.ok).count();
+        let _ = s.store.insert_event(&crate::store::now_event(
+            "response",
+            if failed == 0 { "info" } else { "warn" },
+            "maint.junk.cleaned",
+            format!("junk cleanup freed {:.2} GB across {} categories", report.freed_gb, report.results.len()),
+            serde_json::json!({
+                "freed_bytes": report.freed_bytes,
+                "results": report.results.iter().map(|r| serde_json::json!({
+                    "id": r.id, "ok": r.ok, "method": r.method,
+                    "deleted_files": r.deleted_files, "freed_bytes": r.freed_bytes, "failed_files": r.failed_files,
+                })).collect::<Vec<_>>(),
+            }),
+        ));
+    }
+    Ok(Json(report))
+}
+
+#[derive(Deserialize)]
+struct LargeFilesQuery {
+    min_mb: Option<u64>,
+    limit: Option<usize>,
+}
+
+async fn maint_large_files(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<LargeFilesQuery>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let min_mb = q.min_mb.unwrap_or(500).max(10);
+    let limit = q.limit.unwrap_or(50).clamp(1, 500);
+    Ok(Json(crate::maintenance::junk::large_files(min_mb, limit).await))
+}
+
+async fn maint_programs(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    Ok(Json(crate::maintenance::programs::list().await))
+}
+
+async fn maint_uninstall(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<crate::maintenance::programs::UninstallRequest>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    let outcome = crate::maintenance::programs::uninstall(&body).await;
+    let _ = s.store.insert_event(&crate::store::now_event(
+        "response",
+        if outcome.ok { "info" } else { "warn" },
+        "maint.program.uninstall",
+        format!("uninstall {} ({}): {}", outcome.name, outcome.id, if outcome.ok { "launched" } else { "FAILED" }),
+        serde_json::json!({ "id": outcome.id, "name": outcome.name, "ok": outcome.ok, "message": outcome.message }),
+    ));
+    Ok(Json(outcome))
+}
+
+async fn maint_health(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+    Ok(Json(crate::maintenance::health::audit().await))
+}
+
+async fn maint_health_apply(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PerfApplyBody>,
+) -> Result<impl IntoResponse, StatusCode> {
+    check_auth(&headers, &s.token)?;
+
+    // Same allowlist rule as perf_apply: the command must be one that a
+    // fresh health audit produced right now. Do not relax.
+    let report = crate::maintenance::health::audit().await;
+    let Some(finding) = report.findings.iter().find(|f| f.fix_command.as_deref() == Some(body.fix_command.as_str())) else {
+        tracing::warn!("maint_health_apply: rejected unknown fix_command (len={})", body.fix_command.len());
+        return Err(StatusCode::FORBIDDEN);
+    };
+
+    let outcome = crate::detectors::perf::apply_fix(&body.fix_command, finding.requires_admin)
+        .await
+        .map_err(|e| {
+            tracing::error!("maint_health_apply: execution failed: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let _ = s.store.insert_event(&crate::store::now_event(
+        "response",
+        if outcome.ok { "info" } else { "warn" },
+        "maint.health.fix",
+        format!(
+            "health fix {} ({}): {}",
+            finding.id,
+            if outcome.launched_elevated { "elevated" } else { "user" },
+            if outcome.ok { "OK" } else { "FAILED" },
+        ),
+        serde_json::json!({
+            "id": finding.id,
+            "title": finding.title,
+            "requires_admin": finding.requires_admin,
+            "ok": outcome.ok,
+            "exit_code": outcome.exit_code,
+        }),
+    ));
     Ok(Json(outcome))
 }
 

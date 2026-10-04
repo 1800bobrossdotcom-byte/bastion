@@ -14,6 +14,39 @@ Local, user-mode defensive monitoring agent for your own Windows machine.
 
 All events go to a local SQLite store. A Next.js dashboard on `http://127.0.0.1:7878` reads them via a bearer-token-protected JSON API on the agent.
 
+## Machine maintenance (cleanup + health)
+
+Bastion also includes a cleanup and machine-health tool. Use it from the dashboard API or directly from a terminal:
+
+```powershell
+bastion-agent maint                 # health score + reclaimable junk summary
+bastion-agent maint scan            # junk by category (temp, update cache, browser caches, dumps, ...)
+bastion-agent maint clean           # dry run of the recommended set
+bastion-agent maint clean --yes     # actually clean the recommended set
+bastion-agent maint clean --yes browser_cache shader_cache   # specific categories
+bastion-agent maint health          # disk SMART/wear, pending reboot, update age, event-log errors, battery
+bastion-agent maint programs        # installed Win32 + Store apps, flagged bloatware / large / stale
+bastion-agent maint large 1000      # biggest files (>= 1000 MB) in your profile, plus Downloads age
+# add --json to any command for raw output
+```
+
+**Junk categories:** user + Windows temp, Windows Update download cache, Delivery Optimization cache, crash dumps, Windows Error Reporting queues, browser caches (Chrome/Edge/Brave/Vivaldi/Firefox), thumbnail cache, GPU shader caches, developer package caches (npm/pip/Yarn/NuGet/Go/cargo), old CBS/DISM logs, Recycle Bin. `Windows.old` is sized but left to Windows' own Storage settings.
+
+**Safety rules:** only the contents of fixed, agent-defined folders are deleted (never the folder itself, never a path from the client); symlinks/junctions are never followed; recently modified files are left alone (24–72 h depending on category); locked files are skipped; browser caches are skipped while that browser is running. Admin-only categories are batched into a single UAC prompt. Uninstall launches the program's own registered uninstaller (or `Remove-AppxPackage` for Store apps) — nothing is removed silently. Every clean, uninstall and health fix is written to the tamper-evident event chain.
+
+API (bearer token, same as the rest):
+
+| Method | Path | Body / query |
+|---|---|---|
+| GET | `/api/maint/overview` | — |
+| GET | `/api/maint/junk/scan` | — |
+| POST | `/api/maint/junk/clean` | `{ "ids": ["user_temp", ...], "dry_run": false }` (empty `ids` = recommended set) |
+| GET | `/api/maint/large-files` | `?min_mb=500&limit=50` |
+| GET | `/api/maint/programs` | — |
+| POST | `/api/maint/programs/uninstall` | `{ "id": "win32:HKLM:{GUID}", "confirm": true }` |
+| GET | `/api/maint/health` | — |
+| POST | `/api/maint/health/apply` | `{ "fix_command": "<exact string from /api/maint/health>" }` |
+
 ## What it does NOT do
 
 - Detect or block nation-state spyware (Pegasus, Predator, etc.). That requires kernel drivers, ETW providers signed by Microsoft, and a SOC.

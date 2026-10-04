@@ -8,6 +8,7 @@ mod dga;
 mod dpapi;
 mod forensic;
 mod hashlist;
+mod maintenance;
 mod notifier;
 mod quarantine;
 mod scan_engine;
@@ -23,6 +24,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
+
+    // `bastion-agent maint ...` runs a one-shot maintenance command and exits.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("maint") {
+        return maintenance::cli::run(&args[1..]).await;
+    }
 
     let cfg = config::Config::load_or_init()?;
     tracing::info!("bastion-agent starting");
