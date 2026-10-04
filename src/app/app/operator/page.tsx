@@ -217,6 +217,20 @@ export default function Home() {
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
   const [lastTickAt, setLastTickAt] = useState<Date | null>(null);
+  // Version reported by the agent itself (/api/health, no token needed).
+  // Agents before 0.4.1 don't report one, so nothing is shown for them.
+  const [agentVersion, setAgentVersion] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () =>
+      fetch("http://127.0.0.1:7878/api/health")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (!cancelled) setAgentVersion(typeof j?.version === "string" ? j.version : null); })
+        .catch(() => { if (!cancelled) setAgentVersion(null); });
+    check();
+    const id = setInterval(check, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   const [bootIdx, setBootIdx] = useState(0);
   const [chain, setChain] = useState<ChainStatus | null>(null);
   const [vault, setVault] = useState<VaultEntry[]>([]);
@@ -818,7 +832,7 @@ export default function Home() {
       <div className="flex flex-wrap items-baseline justify-between gap-2 mt-1 mb-3 text-xs">
         <span className="inline-flex items-center gap-2 text-[color:var(--color-phosphor-dim)]">
           <BastionMark size={14} className="text-[color:var(--color-phosphor)]" />
-          v0.2 // local defensive sensor
+          {agentVersion ? `agent v${agentVersion} // ` : ""}local defensive sensor
         </span>
         <span className="inline-flex items-center gap-3 text-[color:var(--color-phosphor-dim)]">
           <Link href="/app" className="text-[color:var(--color-phosphor)] hover:underline">
